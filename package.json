@@ -18,12 +18,12 @@
     "@google/genai": "^2.24.0",
     "cheerio": "^1.2.0",
     "express": "^5.2.1",
-    "openai": "^7.23.0"
+    "openai": "^7.23.0",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.3",
-    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
 }

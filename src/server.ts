@@ -1,8 +1,9 @@
 import express, { type NextFunction, type Request, type Response } from "express";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSystemPrompt, defaultAgents, getAgent, routeMessage } from "./agents";
-import { PORT, PUBLIC_URL } from "./config";
+import { ACCESS_PASSWORD, PORT, PUBLIC_URL } from "./config";
 import { buildKnowledge, crawlSite } from "./crawler";
 import { encrypt, randomId } from "./crypto";
 import { getProvider, isProviderId, PROVIDER_INFO, ProviderError, resolveCredential, testCredential, type ChatTurn } from "./llm";
@@ -16,7 +17,27 @@ const PUBLIC_DIR = path.join(here, "..", "public");
 
 const app = express();
 app.disable("x-powered-by");
+// Behind a hosting proxy (Railway, Fly, Render...), so req.ip is the visitor's IP for rate limiting.
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "200kb" }));
+
+app.get("/healthz", (_req, res) => {
+  res.json({ ok: true });
+});
+
+// Optional password for everything except what customers' browsers load.
+const PUBLIC_PATHS = /^\/(widget\.js|api\/widget\/|demo\/|healthz$)/;
+if (ACCESS_PASSWORD) {
+  const expected = crypto.createHash("sha256").update(ACCESS_PASSWORD).digest();
+  app.use((req, res, next) => {
+    if (PUBLIC_PATHS.test(req.path)) return next();
+    const [scheme, encoded] = (req.headers.authorization ?? "").split(" ");
+    const password = scheme === "Basic" && encoded ? Buffer.from(encoded, "base64").toString().split(":").slice(1).join(":") : "";
+    if (crypto.timingSafeEqual(crypto.createHash("sha256").update(password).digest(), expected)) return next();
+    res.setHeader("WWW-Authenticate", 'Basic realm="Maven", charset="UTF-8"');
+    res.status(401).send("Password required");
+  });
+}
 
 class HttpError extends Error {
   constructor(readonly status: number, message: string) {

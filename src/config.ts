@@ -8,3 +8,5 @@ export const IS_PRODUCTION = process.env.NODE_ENV === "production";
 export const ALLOW_PRIVATE_URLS = process.env.ALLOW_PRIVATE_URLS
   ? process.env.ALLOW_PRIVATE_URLS === "1" || process.env.ALLOW_PRIVATE_URLS === "true"
   : !IS_PRODUCTION;
+/** If set, the dashboard and onboarding require this password (HTTP basic auth). The widget stays public. */
+export const ACCESS_PASSWORD = process.env.MAVEN_ACCESS_PASSWORD || "";

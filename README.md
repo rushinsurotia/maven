@@ -40,6 +40,10 @@ npm test               # unit + end-to-end tests (fixture site, fake Anthropic /
 npm run typecheck
 ```
 
+### Deploying
+
+See [`docs/deploy.md`](docs/deploy.md): Railway, Fly.io, Render or any Docker host. It needs a persistent volume. Static hosting like GitHub Pages won't work.
+
 ### What the MVP includes
 
 | Area | MVP | Planned (see architecture doc) |
