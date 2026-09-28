@@ -37,12 +37,13 @@ npm run dev            # http://localhost:3000
 
 ```bash
 npm test               # unit + end-to-end tests (fixture site, fake Anthropic / OpenAI-compatible upstreams)
+TEST_DATABASE_URL=postgres://... npm test   # also runs the Postgres storage test
 npm run typecheck
 ```
 
 ### Deploying
 
-See [`docs/deploy.md`](docs/deploy.md): Railway, Fly.io, Render or any Docker host. It needs a persistent volume. Static hosting like GitHub Pages won't work.
+See [`docs/deploy.md`](docs/deploy.md): Railway, Fly.io, Render or any Docker host. Store data in Postgres (set `DATABASE_URL`, no volume needed) or on a persistent volume. Static hosting like GitHub Pages won't work.
 
 ### What the MVP includes
 
@@ -52,7 +53,7 @@ See [`docs/deploy.md`](docs/deploy.md): Railway, Fly.io, Render or any Docker ho
 | AI | Bring your own key: Anthropic, OpenAI, Gemini, OpenAI-compatible. Keys are encrypted at rest (AES-256-GCM) | Azure, Bedrock, external agents, fallback engines, KMS |
 | Agents | Support, Sales and Appointments, each with its own engine and instructions. Keyword router with stickiness | Classifier routing, tools (booking, lead capture, human handoff) |
 | Widget | Bubble or inline, streaming, Shadow DOM, mobile full-screen | WhatsApp, voice |
-| Platform | JSON files in `data/`, in-memory conversations | Postgres + RLS, auth, inbox, billing |
+| Platform | Postgres (`DATABASE_URL`) or JSON files in `data/`; in-memory conversations | Postgres + RLS, auth, inbox, billing |
 
 **MVP limitations:**
 - There are no user accounts. A workspace is reachable by anyone who has its URL (`/app?ws=...`), and the ID is random and unguessable.

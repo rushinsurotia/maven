@@ -3,13 +3,13 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSystemPrompt, defaultAgents, getAgent, routeMessage } from "./agents";
-import { ACCESS_PASSWORD, PORT, PUBLIC_URL } from "./config";
+import { ACCESS_PASSWORD, IS_PRODUCTION, PORT, PUBLIC_URL } from "./config";
 import { buildKnowledge, crawlSite } from "./crawler";
 import { encrypt, randomId } from "./crypto";
 import { getProvider, isProviderId, PROVIDER_INFO, ProviderError, resolveCredential, testCredential, type ChatTurn } from "./llm";
 import { search } from "./retrieval";
 import { assertPublicUrl } from "./safe-fetch";
-import { getKnowledge, getTenant, getTenantByWidgetKey, saveKnowledge, saveTenant, updateTenant } from "./store";
+import { closeStore, getKnowledge, getTenant, getTenantByWidgetKey, initStore, saveKnowledge, saveTenant, storageBackend, updateTenant } from "./store";
 import { ROLES, type Credential, type ProviderId, type Role, type Tenant } from "./types";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -22,7 +22,7 @@ app.set("trust proxy", 1);
 app.use(express.json({ limit: "200kb" }));
 
 app.get("/healthz", (_req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, storage: storageBackend() });
 });
 
 // Optional password for everything except what customers' browsers load.
@@ -233,7 +233,7 @@ app.get("/api/tenants/:id/knowledge", (req, res) => {
 app.post("/api/tenants/:id/recrawl", (req, res) => {
   const t = requireTenant(req);
   void runCrawl(t.id, false);
-  res.json({ ok: true });
+  res.json({ ok: true, storage: storageBackend() });
 });
 
 app.post(
@@ -441,6 +441,25 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 export { app };
 
+async function main() {
+  if ((IS_PRODUCTION || process.env.DATABASE_URL) && !process.env.MAVEN_SECRET) {
+    console.error("MAVEN_SECRET must be set (it encrypts tenants' AI keys). Generate one with: openssl rand -hex 32");
+    process.exit(1);
+  }
+  await initStore();
+  const server = app.listen(PORT, () => console.log(`Maven running at ${PUBLIC_URL} (storage: ${storageBackend()})`));
+  const shutdown = () => {
+    server.close();
+    // Let queued database writes finish before exiting.
+    closeStore().finally(() => process.exit(0));
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  app.listen(PORT, () => console.log(`Maven running at ${PUBLIC_URL}`));
+  main().catch((err) => {
+    console.error("Failed to start:", err);
+    process.exit(1);
+  });
 }
