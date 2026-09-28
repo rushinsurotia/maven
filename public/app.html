@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3C/svg%3E" />
+  <title>Maven dashboard</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .layout { display: grid; grid-template-columns: minmax(340px, 460px) 1fr; gap: 20px; padding: 20px; max-width: 1400px; margin: 0 auto; }
+    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; padding: 16px; } }
+    .status { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .status .grow { flex: 1; min-width: 0; }
+    .status .url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 14px; }
+    .tabs button { background: none; color: var(--muted); border: 0; padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+    .tabs button.active { background: var(--accent-soft); color: var(--accent); }
+    .agent { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+    .agent-head { display: flex; align-items: center; gap: 10px; }
+    .agent-head h3 { margin: 0; font-size: 16px; flex: 1; }
+    .toggle { display: flex; align-items: center; gap: 6px; font-weight: 500; margin: 0; font-size: 13px; }
+    details summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 10px; }
+    .actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+    .cred { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .pages { max-height: 420px; overflow-y: auto; font-size: 13px; }
+    .pages a { display: block; padding: 6px 0; border-bottom: 1px solid var(--border); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .play-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel); flex-wrap: wrap; }
+    .seg button { background: none; color: var(--text); border: 0; border-radius: 0; padding: 8px 12px; font-size: 13px; font-weight: 600; }
+    .seg button.active { background: var(--accent); color: #fff; }
+    .browser { border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--panel); }
+    .bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--border); display: inline-block; }
+    .bar .addr { flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .site { display: grid; grid-template-columns: 1fr 400px; gap: 24px; padding: 24px; min-height: 640px; }
+    @media (max-width: 1200px) { .site { grid-template-columns: 1fr; } .site .hero { display: none; } }
+    .site .hero h2 { font-size: 28px; letter-spacing: -.02em; }
+    .ghost { height: 12px; border-radius: 6px; background: var(--bg); margin: 10px 0; }
+    #chat { height: 600px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="logo" href="/">maven<span>.</span></a>
+    <span class="muted small" id="site"></span>
+  </div>
+
+  <div class="layout">
+    <section>
+      <div class="card">
+        <div class="status" id="status"></div>
+        <div class="tabs" id="tabs">
+          <button data-tab="agents" class="active">Agents</button>
+          <button data-tab="ai">AI connections</button>
+          <button data-tab="business">Business info</button>
+          <button data-tab="look">Appearance</button>
+          <button data-tab="knowledge">Knowledge</button>
+          <button data-tab="install">Install</button>
+        </div>
+        <div id="panel"></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="play-head">
+        <h2 style="margin:0;flex:1">Playground</h2>
+        <div class="seg" id="roles"></div>
+        <button class="secondary" id="reset" title="Start a new conversation">New chat</button>
+      </div>
+      <p class="muted small" style="margin:-4px 0 12px">This is exactly what your customers will see. <b>Auto</b> routes each message to the right agent; pick an agent to test it on its own.</p>
+      <div class="browser">
+        <div class="bar"><i></i><i></i><i></i><div class="addr" id="addr"></div></div>
+        <div class="site">
+          <div class="hero">
+            <h2 id="heroName"></h2>
+            <p class="muted" id="heroDesc"></p>
+            <div class="ghost" style="width:90%"></div><div class="ghost" style="width:75%"></div><div class="ghost" style="width:82%"></div>
+            <div class="ghost" style="width:60%"></div>
+          </div>
+          <div id="chat"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+<script src="/widget.js" data-manual="true"></script>
+<script>
+const wsId = new URLSearchParams(location.search).get("ws");
+if (!wsId) location.href = "/";
+let t = null;
+let providers = [];
+let tab = "agents";
+let playRole = "";
+let pollTimer = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function api(path, opts = {}) {
+  const res = await fetch("/api/tenants/" + encodeURIComponent(wsId) + path, {
+    ...opts,
+    headers: { "content-type": "application/json" },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+function credLabel(c) {
+  return esc(c.label) + (c.last4 ? " ····" + esc(c.last4) : "") + (c.baseUrl ? " (" + esc(c.baseUrl) + ")" : "");
+}
+
+function renderStatus() {
+  const c = t.crawl;
+  let html;
+  if (c.status === "crawling" || c.status === "pending") {
+    html = '<span class="spinner" style="color:var(--accent)"></span><div class="grow"><b>Reading your website…</b> ' + c.pagesCrawled + ' pages so far' +
+      '<div class="muted small url">' + esc(c.currentUrl || "") + "</div></div>";
+  } else if (c.status === "error") {
+    html = '<div class="grow"><b style="color:var(--danger)">Couldn\'t read the website.</b><div class="muted small">' + esc(c.error) + '</div></div><button class="secondary" onclick="recrawl()">Retry</button>';
+  } else {
+    html = '<div class="grow"><b>Ready.</b> Learned from ' + c.pagesCrawled + " pages (" + c.chunks + ' snippets).<div class="muted small">Last read ' + new Date(c.finishedAt).toLocaleString() + '</div></div><button class="secondary" onclick="recrawl()">Re-read site</button>';
+  }
+  $("status").innerHTML = html;
+}
+
+function modelInput(id, providerId, value) {
+  const p = providers.find((x) => x.id === providerId);
+  if (providerId === "demo") return '<input id="' + id + '" value="demo" disabled />';
+  return '<input id="' + id + '" list="' + id + '-list" value="' + esc(value) + '" /><datalist id="' + id + '-list">' +
+    (p ? p.suggestedModels.map((m) => '<option value="' + esc(m) + '">').join("") : "") + "</datalist>";
+}
+
+const panels = {
+  agents() {
+    return '<p class="muted small" style="margin-top:0">Each role is its own agent with its own AI engine and instructions. Customers see one assistant.</p>' +
+      t.agents.map((a) => {
+        const cred = t.credentials.find((c) => c.id === a.credentialId);
+        return '<div class="agent">' +
+          '<div class="agent-head"><h3>' + esc(a.name) + '</h3><label class="toggle"><input type="checkbox" id="en-' + a.role + '"' + (a.enabled ? " checked" : "") + " /> Enabled</label></div>" +
+          '<div class="row"><div><label>AI connection</label><select id="cred-' + a.role + '" data-role="' + a.role + '" class="cred-select">' +
+          t.credentials.map((c) => '<option value="' + c.id + '"' + (c.id === a.credentialId ? " selected" : "") + ">" + credLabel(c) + "</option>").join("") +
+          '</select></div><div><label>Model</label><span id="model-wrap-' + a.role + '">' + modelInput("model-" + a.role, cred && cred.provider, a.model) + "</span></div></div>" +
+          '<details><summary>Name & instructions</summary><label>Name</label><input id="name-' + a.role + '" value="' + esc(a.name) + '" />' +
+          '<label>Instructions</label><textarea id="ins-' + a.role + '" rows="8">' + esc(a.instructions) + "</textarea></details>" +
+          '<div class="actions"><button onclick="saveAgent(\'' + a.role + '\', this)">Save</button><span id="msg-' + a.role + '" class="small"></span></div></div>';
+      }).join("") +
+      '<p class="muted small">Want a different AI for one role? Add it under <a href="#" onclick="setTab(\'ai\');return false">AI connections</a>, then pick it here.</p>';
+  },
+  ai() {
+    return '<p class="muted small" style="margin-top:0">Connect as many AI accounts as you like and assign them to agents. Keys are encrypted and never shown again.</p>' +
+      t.credentials.map((c) => '<div class="cred"><span>' + credLabel(c) + '</span><span class="muted small">' +
+        t.agents.filter((a) => a.credentialId === c.id).map((a) => esc(a.name)).join(", ") + "</span></div>").join("") +
+      '<h3 style="margin-top:20px">Add a connection</h3>' +
+      '<label>Provider</label><select id="newProvider">' + providers.map((p) => '<option value="' + p.id + '">' + esc(p.name) + "</option>").join("") + "</select>" +
+      '<div id="newFields"></div>' +
+      '<div class="actions"><button id="addCredBtn" onclick="addCred(this)">Test & add</button><span id="credMsg" class="small"></span></div>';
+  },
+  business() {
+    return '<label>Business name</label><input id="bName" value="' + esc(t.profile.name) + '" />' +
+      '<label>Description</label><textarea id="bDesc" rows="3">' + esc(t.profile.description) + "</textarea>" +
+      '<label>Extra facts for your agents</label><textarea id="bExtra" rows="8" placeholder="Opening hours, policies, parking, anything that isn\'t on your website…">' + esc(t.profile.extraInfo) + "</textarea>" +
+      '<div class="actions"><button onclick="saveBusiness(this)">Save</button><span id="bMsg" class="small"></span></div>';
+  },
+  look() {
+    return '<label>Assistant name</label><input id="lName" value="' + esc(t.branding.assistantName) + '" />' +
+      '<label>Greeting</label><input id="lGreet" value="' + esc(t.branding.greeting) + '" />' +
+      '<label>Brand color</label><input id="lColor" type="color" value="' + esc(t.branding.color) + '" style="width:80px;height:40px;padding:2px" />' +
+      '<div class="actions"><button onclick="saveLook(this)">Save</button><span id="lMsg" class="small"></span></div>';
+  },
+  knowledge() {
+    return '<p class="muted small" style="margin-top:0">Pages your agents learned from. Add facts that aren\'t on your site under <a href="#" onclick="setTab(\'business\');return false">Business info</a>.</p><div class="pages" id="pages">Loading…</div>';
+  },
+  install() {
+    return '<p style="margin-top:0">Paste this before <code>&lt;/body&gt;</code> on your website:</p><pre id="snippet">' + esc(t.embedSnippet) + "</pre>" +
+      '<div class="actions"><button class="secondary" onclick="navigator.clipboard.writeText(t.embedSnippet);this.textContent=\'Copied\'">Copy snippet</button>' +
+      '<a class="btn secondary" target="_blank" href="' + esc(t.demoUrl) + '">Open test page ↗</a></div>' +
+      '<p class="muted small">Want the chat front and center instead of a bubble? Add <code>data-mode="inline" data-target="#your-element"</code> to the script tag.</p>';
+  },
+};
+
+function renderPanel() {
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  $("panel").innerHTML = panels[tab]();
+  if (tab === "agents") {
+    document.querySelectorAll(".cred-select").forEach((sel) => sel.addEventListener("change", () => {
+      const role = sel.dataset.role;
+      const c = t.credentials.find((x) => x.id === sel.value);
+      const p = providers.find((x) => x.id === c.provider);
+      $("model-wrap-" + role).innerHTML = modelInput("model-" + role, c.provider, p ? p.defaultModel : "");
+    }));
+  }
+  if (tab === "ai") {
+    const render = () => {
+      const p = providers.find((x) => x.id === $("newProvider").value);
+      let h = "";
+      if (p.id !== "demo") {
+        if (p.needsBaseUrl) h += '<label>Base URL</label><input id="nBase" placeholder="https://openrouter.ai/api/v1" />';
+        h += '<label>API key</label><input id="nKey" type="password" autocomplete="off" placeholder="' + esc(p.keyHint) + '" />';
+        h += '<label>Model to test with</label>' + modelInput("nModel", p.id, p.defaultModel);
+      }
+      h += '<label>Label</label><input id="nLabel" placeholder="' + esc(p.name) + '" />';
+      $("newFields").innerHTML = h;
+    };
+    $("newProvider").addEventListener("change", render);
+    $("newProvider").value = providers.find((p) => p.id === "anthropic") ? "anthropic" : providers[0].id;
+    render();
+  }
+  if (tab === "knowledge") {
+    api("/knowledge").then((kb) => {
+      $("pages").innerHTML = kb.pages.length
+        ? kb.pages.map((p) => '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.title) + ' <span class="muted">' + esc(p.url) + "</span></a>").join("")
+        : '<span class="muted">No pages yet.</span>';
+    });
+  }
+}
+
+function setTab(name) { tab = name; renderPanel(); }
+document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.tab)));
+
+async function withButton(btn, msgEl, fn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> ' + label;
+  msgEl.className = "small";
+  msgEl.textContent = "";
+  try {
+    await fn();
+    msgEl.className = "small success";
+    msgEl.textContent = "Saved";
+    return true;
+  } catch (e) {
+    msgEl.className = "small error";
+    msgEl.textContent = e.message;
+    return false;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+async function saveAgent(role, btn) {
+  const ok = await withButton(btn, $("msg-" + role), async () => {
+    t = await api("/agents/" + role, {
+      method: "PUT",
+      body: {
+        enabled: $("en-" + role).checked,
+        credentialId: $("cred-" + role).value,
+        model: $("model-" + role).value.trim(),
+        name: $("name-" + role).value,
+        instructions: $("ins-" + role).value,
+      },
+    });
+  });
+  if (ok) { renderRoles(); remountChat(); setTimeout(() => { renderPanel(); }, 900); }
+}
+
+async function addCred(btn) {
+  const v = (id) => ($(id) ? $(id).value.trim() : undefined);
+  const ok = await withButton(btn, $("credMsg"), async () => {
+    t = await api("/credentials", {
+      method: "POST",
+      body: { provider: v("newProvider"), apiKey: v("nKey"), baseUrl: v("nBase"), model: v("nModel"), label: v("nLabel") },
+    });
+  });
+  if (ok) setTimeout(renderPanel, 700);
+}
+
+async function saveBusiness(btn) {
+  await withButton(btn, $("bMsg"), async () => {
+    t = await api("", { method: "PATCH", body: { profile: { name: $("bName").value, description: $("bDesc").value, extraInfo: $("bExtra").value } } });
+  });
+  renderChrome();
+}
+
+async function saveLook(btn) {
+  const ok = await withButton(btn, $("lMsg"), async () => {
+    t = await api("", { method: "PATCH", body: { branding: { assistantName: $("lName").value, greeting: $("lGreet").value, color: $("lColor").value } } });
+  });
+  if (ok) remountChat();
+}
+
+async function recrawl() {
+  await api("/recrawl", { method: "POST" });
+  t.crawl.status = "crawling";
+  t.crawl.pagesCrawled = 0;
+  renderStatus();
+  poll();
+}
+
+function renderRoles() {
+  const roles = [{ role: "", name: "Auto" }, ...t.agents.filter((a) => a.enabled)];
+  if (!roles.some((r) => r.role === playRole)) playRole = "";
+  $("roles").innerHTML = roles.map((r) => '<button data-role="' + r.role + '" class="' + (r.role === playRole ? "active" : "") + '">' + esc(r.name) + "</button>").join("");
+  $("roles").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    playRole = b.dataset.role;
+    renderRoles();
+    remountChat();
+  }));
+}
+
+function remountChat(reset) {
+  const opts = { key: t.widgetKey, mode: "inline", target: "#chat", role: playRole || undefined, preview: true };
+  reset ? MavenWidget.reset(opts) : MavenWidget.mount(opts);
+}
+$("reset").addEventListener("click", () => remountChat(true));
+
+function renderChrome() {
+  $("site").textContent = t.websiteUrl;
+  $("addr").textContent = t.websiteUrl;
+  $("heroName").textContent = t.profile.name;
+  $("heroDesc").textContent = t.profile.description || "Your website";
+}
+
+async function poll() {
+  clearTimeout(pollTimer);
+  const before = t.crawl.status;
+  t = await api("");
+  renderStatus();
+  if (t.crawl.status === "crawling" || t.crawl.status === "pending") {
+    pollTimer = setTimeout(poll, 1500);
+  } else if (before !== t.crawl.status) {
+    // Crawl just finished: pick up the detected name, colors and pages.
+    renderChrome();
+    renderPanel();
+    remountChat();
+  }
+}
+
+(async function init() {
+  try {
+    [t, providers] = await Promise.all([api(""), fetch("/api/providers").then((r) => r.json())]);
+  } catch (e) {
+    document.body.innerHTML = '<div style="padding:40px;text-align:center"><h2>Workspace not found</h2><a href="/">Create a new one</a></div>';
+    return;
+  }
+  renderChrome();
+  renderStatus();
+  renderPanel();
+  renderRoles();
+  remountChat();
+  if (t.crawl.status === "crawling" || t.crawl.status === "pending") poll();
+})();
+</script>
+</body>
+</html>

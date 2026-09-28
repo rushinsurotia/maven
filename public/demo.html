@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3C/svg%3E" />
+  <title>Test page</title>
+  <style>
+    body { margin: 0; font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #111827; background: #fff; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 18px 32px; border-bottom: 1px solid #e5e7eb; }
+    header b { font-size: 20px; }
+    nav span { margin-left: 20px; color: #6b7280; }
+    main { max-width: 860px; margin: 0 auto; padding: 72px 16px; }
+    h1 { font-size: 44px; line-height: 1.1; letter-spacing: -.02em; margin: 0 0 16px; }
+    p { color: #4b5563; font-size: 18px; }
+    .note { margin-top: 48px; padding: 14px 16px; border-radius: 10px; background: #f3f4f6; color: #374151; font-size: 14px; }
+    @media (max-width: 640px) { nav { display: none; } header { padding: 16px; } h1 { font-size: 32px; } }
+  </style>
+</head>
+<body>
+  <header><b id="name">Loading…</b><nav><span>Services</span><span>About</span><span>Contact</span></nav></header>
+  <main>
+    <h1 id="headline">Welcome</h1>
+    <p id="desc">This test page shows how the chat widget looks on a website. Click the bubble in the corner to chat.</p>
+    <div class="note">This is a Maven test page, not your real website. To add the chat to your site, copy the snippet from the <b>Install</b> tab in your dashboard.</div>
+  </main>
+  <script src="/widget.js" data-manual="true"></script>
+  <script>
+    const key = location.pathname.split("/").pop();
+    fetch("/api/widget/" + encodeURIComponent(key) + "/config").then((r) => r.json()).then((cfg) => {
+      document.title = cfg.businessName;
+      document.getElementById("name").textContent = cfg.businessName;
+      document.getElementById("headline").textContent = "Welcome to " + cfg.businessName;
+    });
+    MavenWidget.mount({ key, mode: "bubble", open: window.innerWidth > 640 });
+  </script>
+</body>
+</html>

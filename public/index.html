@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3C/svg%3E" />
+  <title>Maven: set up your AI agent</title>
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    .wrap { max-width: 720px; margin: 0 auto; padding: 40px 16px 80px; }
+    .hero h1 { font-size: 34px; letter-spacing: -.02em; }
+    .hero p { font-size: 17px; }
+    .step { display: flex; align-items: center; gap: 10px; margin: 26px 0 6px; font-weight: 700; }
+    .step b { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
+    .existing { margin-top: 28px; }
+    .existing a { display: block; padding: 8px 0; border-top: 1px solid var(--border); text-decoration: none; }
+    .submit { margin-top: 24px; width: 100%; justify-content: center; padding: 14px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div class="topbar"><a class="logo" href="/">maven<span>.</span></a></div>
+  <div class="wrap">
+    <div class="hero">
+      <h1>Put an AI agent on your website</h1>
+      <p class="muted">Enter your website and connect the AI you want to use. We'll read your site and set up Support, Sales and Appointments agents you can try right away.</p>
+    </div>
+
+    <form id="f" class="card">
+      <div class="step"><b>1</b> Your website</div>
+      <input id="website" type="text" inputmode="url" placeholder="yourbusiness.com" required autocomplete="url" />
+
+      <div class="step"><b>2</b> Your AI</div>
+      <p class="muted small" style="margin:0 0 10px">Use your own API key. It's stored encrypted and only used to answer your customers. Pick <b>Demo</b> to try without a key.</p>
+      <div class="providers" id="providers"></div>
+      <div id="fields"></div>
+
+      <button class="submit" id="submit" type="submit">Create my agent</button>
+      <div class="error" id="err" role="alert"></div>
+    </form>
+
+    <div class="existing" id="existing" hidden>
+      <h3>Your workspaces</h3>
+      <div id="existingList"></div>
+    </div>
+  </div>
+
+<script>
+let providers = [];
+const $ = (id) => document.getElementById(id);
+
+function selected() {
+  const el = document.querySelector('input[name=provider]:checked');
+  return providers.find((p) => p.id === (el && el.value));
+}
+
+function renderFields() {
+  const p = selected();
+  if (!p) return;
+  let html = "";
+  if (p.id === "demo") {
+    html = '<p class="muted small" style="margin-top:14px">Demo mode doesn\'t use an AI model: it quotes the most relevant parts of your site. You can connect a real provider later from the dashboard.</p>';
+  } else {
+    if (p.needsBaseUrl) {
+      html += '<label for="baseUrl">Base URL</label><input id="baseUrl" type="url" placeholder="https://openrouter.ai/api/v1  ·  http://localhost:11434/v1" required />';
+    }
+    html += '<label for="apiKey">API key' + (p.needsKey ? "" : " <span class=\"muted\">(optional)</span>") + '</label>' +
+      '<input id="apiKey" type="password" autocomplete="off" placeholder="' + p.keyHint + '"' + (p.needsKey ? " required" : "") + " />";
+    html += '<label for="model">Model</label><input id="model" list="models" value="' + p.defaultModel + '" placeholder="e.g. meta-llama/llama-3.3-70b-instruct" required />' +
+      '<datalist id="models">' + p.suggestedModels.map((m) => '<option value="' + m + '">').join("") + "</datalist>";
+  }
+  $("fields").innerHTML = html;
+}
+
+fetch("/api/providers").then((r) => r.json()).then((list) => {
+  providers = list;
+  $("providers").innerHTML = list.map((p, i) =>
+    '<label class="provider"><input type="radio" name="provider" value="' + p.id + '"' + (i === 0 ? " checked" : "") + " />" + p.name + "</label>"
+  ).join("");
+  document.querySelectorAll("input[name=provider]").forEach((el) => el.addEventListener("change", renderFields));
+  renderFields();
+});
+
+$("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const p = selected();
+  $("err").textContent = "";
+  const btn = $("submit");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> ' + (p.id === "demo" ? "Creating…" : "Checking your key…");
+  const val = (id) => ($(id) ? $(id).value.trim() : undefined);
+  try {
+    const res = await fetch("/api/tenants", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ websiteUrl: val("website"), provider: p.id, apiKey: val("apiKey"), baseUrl: val("baseUrl"), model: val("model") }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Something went wrong");
+    try {
+      const saved = JSON.parse(localStorage.getItem("maven:workspaces") || "[]");
+      saved.unshift({ id: data.id, website: data.websiteUrl });
+      localStorage.setItem("maven:workspaces", JSON.stringify(saved.slice(0, 10)));
+    } catch {}
+    location.href = "/app?ws=" + encodeURIComponent(data.id);
+  } catch (err) {
+    $("err").textContent = err.message;
+    btn.disabled = false;
+    btn.textContent = "Create my agent";
+  }
+});
+
+try {
+  const saved = JSON.parse(localStorage.getItem("maven:workspaces") || "[]");
+  if (saved.length) {
+    $("existing").hidden = false;
+    $("existingList").innerHTML = saved.map((w) => '<a href="/app?ws=' + encodeURIComponent(w.id) + '">' + w.website.replace(/[<>&"]/g, "") + " →</a>").join("");
+  }
+} catch {}
+</script>
+</body>
+</html>
