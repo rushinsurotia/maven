@@ -32,11 +32,19 @@
     .bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg); }
     .bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--border); display: inline-block; }
     .bar .addr { flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .site { display: grid; grid-template-columns: 1fr 400px; gap: 24px; padding: 24px; min-height: 640px; }
-    @media (max-width: 1200px) { .site { grid-template-columns: 1fr; } .site .hero { display: none; } }
+    /* The mock site stands in for the customer's (light) website, whatever the dashboard theme. */
+    .site { display: grid; grid-template-columns: 1fr 400px; gap: 24px; padding: 24px; min-height: 640px; background: #fff; color: #202124; }
+    @media (max-width: 1200px) { .site { grid-template-columns: 1fr; } .site:not(.search) .hero { display: none; } }
     .site .hero h2 { font-size: 28px; letter-spacing: -.02em; }
-    .ghost { height: 12px; border-radius: 6px; background: var(--bg); margin: 10px 0; }
+    .site .hero p { color: #5f6368; }
+    .ghost { height: 12px; border-radius: 6px; background: #f1f3f4; margin: 10px 0; }
     #chat { height: 600px; }
+    .site.search { display: block; padding: 32px 24px 40px; }
+    .site.search #chat { height: auto; }
+    .site.search .hero { text-align: center; max-width: 640px; margin: 72px auto 22px; }
+    .site.search .hero h2 { font-size: clamp(30px, 4vw, 46px); color: var(--brand, #4f46e5); margin-bottom: 6px; }
+    .site.search .ghost { display: none; }
+    .site.search.active .hero { display: none; }
   </style>
 </head>
 <body>
@@ -64,10 +72,14 @@
     <section>
       <div class="play-head">
         <h2 style="margin:0;flex:1">Playground</h2>
+        <div class="seg" id="styles">
+          <button data-style="search">Search box</button>
+          <button data-style="chat">Chat window</button>
+        </div>
         <div class="seg" id="roles"></div>
-        <button class="secondary" id="reset" title="Start a new conversation">New chat</button>
+        <button class="secondary" id="reset" title="Start a new conversation">Start over</button>
       </div>
-      <p class="muted small" style="margin:-4px 0 12px">This is exactly what your customers will see. <b>Auto</b> routes each message to the right agent; pick an agent to test it on its own.</p>
+      <p class="muted small" style="margin:-4px 0 12px">This is exactly what your customers will see. Switch between the <b>search box</b> and <b>chat window</b> styles. <b>Auto</b> routes each message to the right agent; pick an agent to test it on its own.</p>
       <div class="browser">
         <div class="bar"><i></i><i></i><i></i><div class="addr" id="addr"></div></div>
         <div class="site">
@@ -280,7 +292,7 @@ async function saveLook(btn) {
   const ok = await withButton(btn, $("lMsg"), async () => {
     t = await api("", { method: "PATCH", body: { branding: { assistantName: $("lName").value, greeting: $("lGreet").value, color: $("lColor").value } } });
   });
-  if (ok) remountChat();
+  if (ok) { renderChrome(); remountChat(); }
 }
 
 async function recrawl() {
@@ -302,17 +314,47 @@ function renderRoles() {
   }));
 }
 
+let playStyle = "search";
+try { playStyle = localStorage.getItem("maven:playStyle") || "search"; } catch {}
+
+function renderStyles() {
+  document.querySelectorAll("#styles button").forEach((b) => b.classList.toggle("active", b.dataset.style === playStyle));
+}
+document.querySelectorAll("#styles button").forEach((b) => b.addEventListener("click", () => {
+  playStyle = b.dataset.style;
+  try { localStorage.setItem("maven:playStyle", playStyle); } catch {}
+  renderStyles();
+  remountChat();
+}));
+
 function remountChat(reset) {
-  const opts = { key: t.widgetKey, mode: "inline", target: "#chat", role: playRole || undefined, preview: true };
-  reset ? MavenWidget.reset(opts) : MavenWidget.mount(opts);
+  const search = playStyle === "search";
+  const site = document.querySelector(".site");
+  site.classList.toggle("search", search);
+  site.classList.remove("active");
+  const opts = {
+    key: t.widgetKey,
+    mode: search ? "search" : "inline",
+    target: "#chat",
+    role: playRole || undefined,
+    preview: true,
+    autofocus: false,
+    background: "#fff",
+  };
+  const w = reset ? MavenWidget.reset(opts) : MavenWidget.mount(opts);
+  // A restored conversation starts in the results layout.
+  if (search && w.host.shadowRoot.querySelector(".s.active")) site.classList.add("active");
 }
 $("reset").addEventListener("click", () => remountChat(true));
+document.addEventListener("maven:active", () => document.querySelector(".site").classList.add("active"));
+document.addEventListener("maven:reset", () => document.querySelector(".site").classList.remove("active"));
 
 function renderChrome() {
   $("site").textContent = t.websiteUrl;
   $("addr").textContent = t.websiteUrl;
   $("heroName").textContent = t.profile.name;
   $("heroDesc").textContent = t.profile.description || "Your website";
+  document.querySelector(".site").style.setProperty("--brand", t.branding.color);
 }
 
 async function poll() {
@@ -340,6 +382,7 @@ async function poll() {
   renderChrome();
   renderStatus();
   renderPanel();
+  renderStyles();
   renderRoles();
   remountChat();
   if (t.crawl.status === "crawling" || t.crawl.status === "pending") poll();
