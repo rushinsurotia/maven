@@ -2,8 +2,9 @@
  * Maven chat widget.
  *
  * Embed:   <script src="https://YOUR_HOST/widget.js" data-maven-key="pk_..." async></script>
- * Options (data attributes): data-mode="bubble|inline", data-target="#css-selector" (inline mode),
- *          data-open="true" (start open).
+ * Options (data attributes): data-mode="bubble|inline|search", data-target="#css-selector" (inline
+ *          and search modes), data-open="true" (bubble starts open).
+ *          "search" renders a large, centered search-style box; answers appear below it.
  * JS API:  MavenWidget.mount({ key, mode, target, open, role, preview }) / MavenWidget.unmount()
  */
 (function () {
@@ -116,13 +117,58 @@
     }
   }
 
+  // POSTs a message and feeds each server-sent event to onEvent(event, data).
+  function postChat(key, body, onEvent) {
+    return fetch(API + "/api/widget/" + encodeURIComponent(key) + "/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(function (res) {
+      if (!res.ok || !res.body) {
+        return res.json().catch(function () { return {}; }).then(function (j) {
+          throw new Error(j.error || "Request failed");
+        });
+      }
+      var reader = res.body.getReader();
+      var decoder = new TextDecoder();
+      var buf = "";
+      function pump() {
+        return reader.read().then(function (r) {
+          if (r.done) return;
+          buf += decoder.decode(r.value, { stream: true });
+          var parts = buf.split("\n\n");
+          buf = parts.pop();
+          parts.forEach(function (part) {
+            var ev = "message", data = "";
+            part.split("\n").forEach(function (line) {
+              if (line.indexOf("event: ") === 0) ev = line.slice(7);
+              else if (line.indexOf("data: ") === 0) data += line.slice(6);
+            });
+            var parsed;
+            try { parsed = JSON.parse(data); } catch (err) { return; }
+            onEvent(ev, parsed);
+          });
+          return pump();
+        });
+      }
+      return pump();
+    });
+  }
+
+  function loadConfig(key) {
+    return fetch(API + "/api/widget/" + encodeURIComponent(key) + "/config").then(function (r) {
+      return r.ok ? r.json() : Promise.reject(r);
+    });
+  }
+
   function mount(opts) {
     unmount();
     opts = opts || {};
     if (!opts.key) throw new Error("MavenWidget: missing key");
-    var mode = opts.mode === "inline" ? "inline" : "bubble";
+    var mode = opts.mode === "inline" || opts.mode === "search" ? opts.mode : "bubble";
     var target = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
-    if (mode === "inline" && !target) mode = "bubble";
+    if (mode !== "bubble" && !target) mode = "bubble";
+    if (mode === "search") return mountSearch(opts, target);
 
     var host = document.createElement("div");
     host.setAttribute("data-maven-widget", "");
@@ -186,8 +232,7 @@
       store(storeKey + ":h", JSON.stringify(state.history));
     }
 
-    fetch(API + "/api/widget/" + encodeURIComponent(opts.key) + "/config")
-      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+    loadConfig(opts.key)
       .then(function (cfg) {
         wrap.style.setProperty("--c", cfg.color || "#4f46e5");
         $(".title").textContent = cfg.assistantName;
@@ -232,69 +277,38 @@
       typing.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
       var bubble = null, reply = "", agent = null, failed = false;
 
-      fetch(API + "/api/widget/" + encodeURIComponent(opts.key) + "/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: text, conversationId: state.conversationId, role: opts.role || undefined }),
-      })
-        .then(function (res) {
-          if (!res.ok || !res.body) {
-            return res.json().catch(function () { return {}; }).then(function (j) {
-              throw new Error(j.error || "Request failed");
-            });
+      function handle(event, data) {
+        if (event === "meta") {
+          state.conversationId = data.conversationId;
+          store(storeKey, data.conversationId);
+          agent = data.agent;
+        } else if (event === "delta") {
+          if (!bubble) {
+            typing.remove();
+            addTag(agent);
+            bubble = addMsg("bot", "");
           }
-          var reader = res.body.getReader();
-          var decoder = new TextDecoder();
-          var buf = "";
-          function handle(event, data) {
-            if (event === "meta") {
-              state.conversationId = data.conversationId;
-              store(storeKey, data.conversationId);
-              agent = data.agent;
-            } else if (event === "delta") {
-              if (!bubble) {
-                typing.remove();
-                addTag(agent);
-                bubble = addMsg("bot", "");
-              }
-              reply += data.text;
-              bubble.innerHTML = md(reply);
-              scroll();
-            } else if (event === "done") {
-              if (opts.preview && data.sources && data.sources.length && bubble) {
-                var s = document.createElement("div");
-                s.className = "src";
-                s.innerHTML = "Sources: " + data.sources.map(function (x) {
-                  return '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">' + esc(x.title.slice(0, 40)) + "</a>";
-                }).join(" · ");
-                bubble.appendChild(s);
-                scroll();
-              }
-            } else if (event === "error") {
-              failed = true;
-              typing.remove();
-              addMsg("err", data.message + (opts.preview && data.detail ? "\n\nDetails: " + data.detail : ""));
-            }
+          reply += data.text;
+          bubble.innerHTML = md(reply);
+          scroll();
+        } else if (event === "done") {
+          if (opts.preview && data.sources && data.sources.length && bubble) {
+            var s = document.createElement("div");
+            s.className = "src";
+            s.innerHTML = "Sources: " + data.sources.map(function (x) {
+              return '<a href="' + esc(x.url) + '" target="_blank" rel="noopener">' + esc(x.title.slice(0, 40)) + "</a>";
+            }).join(" · ");
+            bubble.appendChild(s);
+            scroll();
           }
-          function pump() {
-            return reader.read().then(function (r) {
-              if (r.done) return;
-              buf += decoder.decode(r.value, { stream: true });
-              var parts = buf.split("\n\n");
-              buf = parts.pop();
-              parts.forEach(function (part) {
-                var ev = "message", data = "";
-                part.split("\n").forEach(function (line) {
-                  if (line.indexOf("event: ") === 0) ev = line.slice(7);
-                  else if (line.indexOf("data: ") === 0) data += line.slice(6);
-                });
-                try { handle(ev, JSON.parse(data)); } catch (err) {}
-              });
-              return pump();
-            });
-          }
-          return pump();
-        })
+        } else if (event === "error") {
+          failed = true;
+          typing.remove();
+          addMsg("err", data.message + (opts.preview && data.detail ? "\n\nDetails: " + data.detail : ""));
+        }
+      }
+
+      postChat(opts.key, { message: text, conversationId: state.conversationId, role: opts.role || undefined }, handle)
         .catch(function (err) {
           failed = true;
           typing.remove();
@@ -312,6 +326,263 @@
     mounted = {
       host: host,
       open: function () { setOpen(true); },
+      reset: function () {
+        store(storeKey, null);
+        store(storeKey + ":h", null);
+      },
+    };
+    return mounted;
+  }
+
+  // ---------- search mode ----------
+
+  var SEARCH_CSS = [
+    ":host{all:initial;display:block}",
+    "*{box-sizing:border-box;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif}",
+    ".s{max-width:720px;margin:0 auto;color:#202124}",
+    ".s-greet{text-align:center;color:#5f6368;font-size:15px;margin:0 0 16px}",
+    ".s-bar{position:sticky;top:0;z-index:5;padding:10px 0;background:var(--bg)}",
+    ".s-box{display:flex;align-items:center;gap:12px;height:58px;padding:0 8px 0 20px;border:1px solid #dfe1e5;border-radius:29px;background:#fff;transition:box-shadow .2s,border-color .2s}",
+    ".s-box:hover,.s-box:focus-within{box-shadow:0 1px 6px rgba(32,33,36,.28);border-color:rgba(223,225,229,0)}",
+    ".s-mag{width:20px;height:20px;color:#9aa0a6;flex:none}",
+    ".s-box input{flex:1;min-width:0;border:0;outline:0;background:transparent;font-size:17px;color:#202124}",
+    ".s-box input::placeholder{color:#80868b}",
+    ".s-clear{border:0;background:none;color:#70757a;font-size:24px;line-height:1;cursor:pointer;padding:4px 6px;display:none}",
+    ".s-box.has-text .s-clear{display:block}",
+    ".s-go{width:42px;height:42px;border-radius:50%;border:0;background:var(--c);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;transition:opacity .15s}",
+    ".s-go:disabled{opacity:.35;cursor:default}",
+    ".s-go svg{width:18px;height:18px}",
+    ".s-chips{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:20px}",
+    ".s-chip{border:1px solid #dadce0;background:#f8f9fa;border-radius:20px;padding:9px 16px;font-size:14px;color:#3c4043;cursor:pointer}",
+    ".s-chip:hover{background:#f1f3f4;border-color:#c6c6c6;box-shadow:0 1px 1px rgba(0,0,0,.1)}",
+    ".s.active .s-greet,.s.active .s-chips{display:none}",
+    ".s-qa{padding:22px 4px;border-bottom:1px solid #ebebeb;animation:in .25s ease-out}",
+    "@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}",
+    ".s-q{font-size:22px;line-height:1.3;color:#202124;margin:0 0 12px}",
+    ".s-tag{font-size:12px;color:#5f6368;margin:-4px 0 10px}.s-tag b{background:#eef2ff;color:#4338ca;border-radius:999px;padding:1px 8px;font-weight:600}",
+    ".s-a{font-size:16px;line-height:1.65;color:#3c4043;word-wrap:break-word}",
+    ".s-a p{margin:0 0 10px}.s-a p:last-child{margin:0}",
+    ".s-a ul{margin:6px 0 10px;padding-left:22px}.s-a li{margin:2px 0}",
+    ".s-a blockquote{margin:6px 0;padding-left:12px;border-left:3px solid #dadce0;color:#4d5156}",
+    ".s-a a{color:#1a0dab}",
+    ".s-a.err{color:#b3261e}",
+    ".s-src{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}",
+    ".s-src a{font-size:12px;color:#4d5156;border:1px solid #dadce0;border-radius:14px;padding:5px 11px;text-decoration:none;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".s-src a:hover{background:#f8f9fa}",
+    ".dots{display:inline-flex;gap:5px;padding:6px 0}.dots span{width:8px;height:8px;border-radius:50%;background:#bdc1c6;animation:b 1.2s infinite}",
+    ".dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}",
+    "@keyframes b{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}",
+    ".s-foot{display:flex;justify-content:center;gap:14px;align-items:center;font-size:12px;color:#9aa0a6;margin-top:18px}",
+    ".s-reset{border:0;background:none;color:#5f6368;font-size:13px;cursor:pointer;text-decoration:underline;display:none}",
+    ".s.active .s-reset{display:inline}",
+    "@media (max-width:480px){.s-box{height:52px;padding-left:16px}.s-q{font-size:19px}.s-box input{font-size:16px}}",
+  ].join("\n");
+
+  var ICON_SEARCH = '<svg class="s-mag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+  var ICON_ARROW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  var CHIPS = {
+    support: "What are your opening hours?",
+    sales: "What services do you offer?",
+    appointments: "I'd like to book an appointment",
+  };
+
+  function mountSearch(opts, target) {
+    var host = document.createElement("div");
+    host.setAttribute("data-maven-widget", "");
+    target.appendChild(host);
+    var root = host.attachShadow({ mode: "open" });
+    root.innerHTML =
+      "<style>" + SEARCH_CSS + "</style>" +
+      '<div class="s">' +
+      '<p class="s-greet"></p>' +
+      '<div class="s-bar"><form class="s-box" role="search">' + ICON_SEARCH +
+      '<input type="text" enterkeyhint="search" autocomplete="off" aria-label="Ask a question" placeholder="Ask anything…" />' +
+      '<button class="s-clear" type="button" aria-label="Clear">×</button>' +
+      '<button class="s-go" type="submit" aria-label="Ask" disabled>' + ICON_ARROW + "</button>" +
+      "</form></div>" +
+      '<div class="s-chips"></div>' +
+      '<div class="s-thread" aria-live="polite"></div>' +
+      '<div class="s-foot"><button class="s-reset" type="button">Start over</button><span>Powered by Maven</span></div>' +
+      "</div>";
+
+    var $ = function (sel) { return root.querySelector(sel); };
+    var wrap = $(".s"), form = $(".s-box"), input = $("input"), go = $(".s-go"), thread = $(".s-thread");
+    wrap.style.setProperty("--c", "#4f46e5");
+    wrap.style.setProperty("--bg", opts.background || "#fff");
+    var storeKey = "maven:" + opts.key + ":" + (opts.role || "auto");
+    var state = { conversationId: store(storeKey) || null, busy: false, history: [] };
+    try {
+      state.history = JSON.parse(store(storeKey + ":h") || "[]");
+    } catch (e) {}
+
+    function persist(entry) {
+      state.history.push(entry);
+      state.history = state.history.slice(-40);
+      store(storeKey + ":h", JSON.stringify(state.history));
+    }
+    function sync() {
+      var has = input.value.trim().length > 0;
+      form.classList.toggle("has-text", input.value.length > 0);
+      go.disabled = !has || state.busy;
+    }
+    function activate() {
+      if (!wrap.classList.contains("active")) {
+        wrap.classList.add("active");
+        host.dispatchEvent(new CustomEvent("maven:active", { bubbles: true, composed: true }));
+      }
+    }
+    function addQuestion(text) {
+      var qa = document.createElement("div");
+      qa.className = "s-qa";
+      var q = document.createElement("h2");
+      q.className = "s-q";
+      q.textContent = text;
+      qa.appendChild(q);
+      thread.appendChild(qa);
+      return qa;
+    }
+    function addAnswer(qa, agent) {
+      if (opts.preview && agent) {
+        var t = document.createElement("div");
+        t.className = "s-tag";
+        t.innerHTML = "<b>" + esc(agent.name) + "</b> agent";
+        qa.appendChild(t);
+      }
+      var a = document.createElement("div");
+      a.className = "s-a";
+      qa.appendChild(a);
+      return a;
+    }
+    function addSources(qa, sources) {
+      // Show page names only ("Contact", not "Contact | Business Name"), and
+      // skip the internal header/footer snippet.
+      var shown = (sources || []).filter(function (x) { return !/^Site-wide information/.test(x.title); });
+      if (!shown.length) return;
+      var s = document.createElement("div");
+      s.className = "s-src";
+      s.innerHTML = shown.map(function (x) {
+        var label = x.title.split(/\s[|\u2013\u2014-]\s/)[0] || x.title;
+        return '<a href="' + esc(x.url) + '" target="_blank" rel="noopener" title="' + esc(x.title) + '">' + esc(label) + "</a>";
+      }).join("");
+      qa.appendChild(s);
+    }
+    function reveal(el) {
+      // Keep the new question just below the sticky search bar.
+      var bar = $(".s-bar").getBoundingClientRect().height;
+      var top = el.getBoundingClientRect().top + window.pageYOffset - bar - 12;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    }
+
+    loadConfig(opts.key)
+      .then(function (cfg) {
+        wrap.style.setProperty("--c", cfg.color || "#4f46e5");
+        $(".s-greet").textContent = cfg.greeting || "";
+        input.placeholder = "Ask " + (cfg.businessName || "us") + " anything…";
+        $(".s-chips").innerHTML = (cfg.agents || [])
+          .filter(function (a) { return CHIPS[a.role]; })
+          .map(function (a) { return '<button type="button" class="s-chip">' + esc(CHIPS[a.role]) + "</button>"; })
+          .join("");
+        root.querySelectorAll(".s-chip").forEach(function (chip) {
+          chip.addEventListener("click", function () { ask(chip.textContent); });
+        });
+      })
+      .catch(function () {
+        $(".s-greet").textContent = "Search is unavailable right now.";
+      });
+
+    // Restore this visitor's earlier questions.
+    var lastQa = null;
+    state.history.forEach(function (h) {
+      if (h.kind === "user") lastQa = addQuestion(h.text);
+      else if (lastQa) {
+        addAnswer(lastQa, h.agent).innerHTML = md(h.text);
+        addSources(lastQa, h.sources);
+      }
+    });
+    if (state.history.length) wrap.classList.add("active");
+
+    input.addEventListener("input", sync);
+    $(".s-clear").addEventListener("click", function () {
+      input.value = "";
+      sync();
+      input.focus();
+    });
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      ask(input.value);
+    });
+    $(".s-reset").addEventListener("click", function () {
+      store(storeKey, null);
+      store(storeKey + ":h", null);
+      state.conversationId = null;
+      state.history = [];
+      thread.innerHTML = "";
+      wrap.classList.remove("active");
+      host.dispatchEvent(new CustomEvent("maven:reset", { bubbles: true, composed: true }));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      input.focus();
+    });
+
+    function ask(raw) {
+      var text = (raw || "").trim();
+      if (!text || state.busy) return;
+      state.busy = true;
+      input.value = "";
+      sync();
+      activate();
+      persist({ kind: "user", text: text });
+      var qa = addQuestion(text);
+      var typing = document.createElement("div");
+      typing.className = "s-a";
+      typing.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+      qa.appendChild(typing);
+      requestAnimationFrame(function () { reveal(qa); });
+      var answer = null, reply = "", agent = null, sources = null, failed = false;
+
+      function showError(message) {
+        failed = true;
+        typing.remove();
+        var a = answer || addAnswer(qa, null);
+        a.classList.add("err");
+        a.textContent = message;
+      }
+
+      postChat(opts.key, { message: text, conversationId: state.conversationId, role: opts.role || undefined }, function (event, data) {
+        if (event === "meta") {
+          state.conversationId = data.conversationId;
+          store(storeKey, data.conversationId);
+          agent = data.agent;
+        } else if (event === "delta") {
+          if (!answer) {
+            typing.remove();
+            answer = addAnswer(qa, agent);
+          }
+          reply += data.text;
+          answer.innerHTML = md(reply);
+        } else if (event === "done") {
+          sources = data.sources;
+          addSources(qa, sources);
+        } else if (event === "error") {
+          showError(data.message + (opts.preview && data.detail ? " (" + data.detail + ")" : ""));
+        }
+      })
+        .catch(function (err) {
+          showError(err.message || "Something went wrong. Please try again.");
+        })
+        .then(function () {
+          if (!answer && !failed) typing.remove();
+          if (reply) persist({ kind: "bot", text: reply, agent: agent, sources: sources });
+          state.busy = false;
+          sync();
+          input.focus();
+        });
+    }
+
+    if (opts.autofocus !== false && !state.history.length) setTimeout(function () { input.focus(); }, 50);
+
+    mounted = {
+      host: host,
+      open: function () { input.focus(); },
       reset: function () {
         store(storeKey, null);
         store(storeKey + ":h", null);

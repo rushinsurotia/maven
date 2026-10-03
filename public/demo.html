@@ -6,33 +6,45 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%278%27 fill=%27%234f46e5%27/%3E%3C/svg%3E" />
   <title>Test page</title>
   <style>
-    body { margin: 0; font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #111827; background: #fff; }
-    header { display: flex; align-items: center; justify-content: space-between; padding: 18px 32px; border-bottom: 1px solid #e5e7eb; }
-    header b { font-size: 20px; }
-    nav span { margin-left: 20px; color: #6b7280; }
-    main { max-width: 860px; margin: 0 auto; padding: 72px 16px; }
-    h1 { font-size: 44px; line-height: 1.1; letter-spacing: -.02em; margin: 0 0 16px; }
-    p { color: #4b5563; font-size: 18px; }
-    .note { margin-top: 48px; padding: 14px 16px; border-radius: 10px; background: #f3f4f6; color: #374151; font-size: 14px; }
-    @media (max-width: 640px) { nav { display: none; } header { padding: 16px; } h1 { font-size: 32px; } }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body { font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #202124; background: #fff; display: flex; flex-direction: column; min-height: 100vh; }
+    header { display: flex; justify-content: flex-end; align-items: center; gap: 20px; padding: 16px 24px; color: #5f6368; }
+    header .name { margin-right: auto; font-weight: 600; color: #202124; font-size: 16px; opacity: 0; transition: opacity .2s; }
+    body.active header .name { opacity: 1; }
+    main { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 0 16px 40px; }
+    .logo { text-align: center; margin: 18vh 0 28px; transition: margin .3s ease; }
+    .logo h1 { margin: 0; font-size: clamp(36px, 7vw, 64px); font-weight: 600; letter-spacing: -.03em; line-height: 1.05; color: var(--brand, #4f46e5); }
+    body.active .logo { margin: 0; height: 0; overflow: hidden; }
+    footer { background: #f2f2f2; color: #70757a; font-size: 13px; padding: 14px 24px; text-align: center; border-top: 1px solid #dadce0; }
+    @media (max-width: 640px) { header .links { display: none; } .logo { margin-top: 12vh; } }
   </style>
 </head>
 <body>
-  <header><b id="name">Loading…</b><nav><span>Services</span><span>About</span><span>Contact</span></nav></header>
+  <header>
+    <span class="name" id="name"></span>
+    <span class="links">Services</span><span class="links">About</span><span class="links">Contact</span>
+  </header>
   <main>
-    <h1 id="headline">Welcome</h1>
-    <p id="desc">This test page shows how the chat widget looks on a website. Click the bubble in the corner to chat.</p>
-    <div class="note">This is a Maven test page, not your real website. To add the chat to your site, copy the snippet from the <b>Install</b> tab in your dashboard.</div>
+    <div class="logo"><h1 id="logo">&nbsp;</h1></div>
+    <div id="search"></div>
   </main>
+  <footer>This is a Maven test page, not your real website. Add the search box to your site with the snippet in your dashboard's <b>Install</b> tab.</footer>
   <script src="/widget.js" data-manual="true"></script>
   <script>
     const key = location.pathname.split("/").pop();
     fetch("/api/widget/" + encodeURIComponent(key) + "/config").then((r) => r.json()).then((cfg) => {
       document.title = cfg.businessName;
+      document.getElementById("logo").textContent = cfg.businessName;
       document.getElementById("name").textContent = cfg.businessName;
-      document.getElementById("headline").textContent = "Welcome to " + cfg.businessName;
+      document.body.style.setProperty("--brand", cfg.color);
     });
-    MavenWidget.mount({ key, mode: "bubble", open: window.innerWidth > 640 });
+    const setActive = (on) => document.body.classList.toggle("active", on);
+    document.addEventListener("maven:active", () => setActive(true));
+    document.addEventListener("maven:reset", () => setActive(false));
+    MavenWidget.mount({ key, mode: "search", target: "#search" });
+    // A returning visitor's earlier answers are restored, so start in the results layout.
+    if (document.querySelector("#search [data-maven-widget]").shadowRoot.querySelector(".s.active")) setActive(true);
   </script>
 </body>
 </html>

@@ -176,7 +176,7 @@ const panels = {
     return '<p style="margin-top:0">Paste this before <code>&lt;/body&gt;</code> on your website:</p><pre id="snippet">' + esc(t.embedSnippet) + "</pre>" +
       '<div class="actions"><button class="secondary" onclick="navigator.clipboard.writeText(t.embedSnippet);this.textContent=\'Copied\'">Copy snippet</button>' +
       '<a class="btn secondary" target="_blank" href="' + esc(t.demoUrl) + '">Open test page ↗</a></div>' +
-      '<p class="muted small">Want the chat front and center instead of a bubble? Add <code>data-mode="inline" data-target="#your-element"</code> to the script tag.</p>';
+      '<p class="muted small">Want it front and center? Add <code>data-mode="search" data-target="#your-element"</code> for a large search-style box (like the test page), or <code>data-mode="inline"</code> for an embedded chat window.</p>';
   },
 };
 

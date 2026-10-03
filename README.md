@@ -37,7 +37,9 @@ npm run dev            # http://localhost:3000
 
 ```html
 <script src="http://localhost:3000/widget.js" data-maven-key="pk_..." async></script>
-<!-- front-and-center variant -->
+<!-- front and center: a large search-style box; answers appear below it -->
+<script src="http://localhost:3000/widget.js" data-maven-key="pk_..." data-mode="search" data-target="#ask" async></script>
+<!-- or an embedded chat window -->
 <script src="http://localhost:3000/widget.js" data-maven-key="pk_..." data-mode="inline" data-target="#chat" async></script>
 ```
 
@@ -58,7 +60,7 @@ See [`docs/deploy.md`](docs/deploy.md): Railway, Fly.io, Render or any Docker ho
 | Knowledge | Same-site crawl (plus sitemap.xml), header/footer dedup, BM25 search | Uploads, FAQs, hybrid vector search, scheduled re-sync |
 | AI | Included AI on platform Groq/Claude keys (fallback + daily cap), or bring your own key: Anthropic, OpenAI, Groq, Gemini, OpenAI-compatible. Keys are encrypted at rest (AES-256-GCM) | Azure, Bedrock, external agents, fallback engines, KMS |
 | Agents | Support, Sales and Appointments, each with its own engine and instructions. Keyword router with stickiness | Classifier routing, tools (booking, lead capture, human handoff) |
-| Widget | Bubble or inline, streaming, Shadow DOM, mobile full-screen | WhatsApp, voice |
+| Widget | Search-style box, bubble or inline; streaming, Shadow DOM, mobile-friendly | WhatsApp, voice |
 | Platform | Postgres (`DATABASE_URL`) or JSON files in `data/`; in-memory conversations | Postgres + RLS, auth, inbox, billing |
 
 **MVP limitations:**
