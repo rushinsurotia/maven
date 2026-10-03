@@ -45,6 +45,11 @@
     .site.search .hero h2 { font-size: clamp(30px, 4vw, 46px); color: var(--brand, #4f46e5); margin-bottom: 6px; }
     .site.search .ghost { display: none; }
     .site.search.active .hero { display: none; }
+    .site.phone { display: block; padding: 32px 16px; background: linear-gradient(180deg, #f1f5f9, #e2e8f0); }
+    .site.phone .hero { display: none; }
+    .site.phone #chat { height: auto; }
+    .phone-note { display: none; text-align: center; color: #475569; font-size: 13px; margin: 0 0 18px; }
+    .site.phone .phone-note { display: block; }
   </style>
 </head>
 <body>
@@ -75,11 +80,12 @@
         <div class="seg" id="styles">
           <button data-style="search">Search box</button>
           <button data-style="chat">Chat window</button>
+          <button data-style="phone">Phone</button>
         </div>
         <div class="seg" id="roles"></div>
         <button class="secondary" id="reset" title="Start a new conversation">Start over</button>
       </div>
-      <p class="muted small" style="margin:-4px 0 12px">This is exactly what your customers will see. Switch between the <b>search box</b> and <b>chat window</b> styles. <b>Auto</b> routes each message to the right agent; pick an agent to test it on its own.</p>
+      <p class="muted small" style="margin:-4px 0 12px">This is exactly what your customers will see. Switch between the <b>search box</b>, <b>chat window</b> and <b>phone</b> styles. <b>Auto</b> routes each message to the right agent; pick an agent to test it on its own.</p>
       <div class="browser">
         <div class="bar"><i></i><i></i><i></i><div class="addr" id="addr"></div></div>
         <div class="site">
@@ -89,6 +95,7 @@
             <div class="ghost" style="width:90%"></div><div class="ghost" style="width:75%"></div><div class="ghost" style="width:82%"></div>
             <div class="ghost" style="width:60%"></div>
           </div>
+          <p class="phone-note">How a conversation feels on a phone, e.g. over WhatsApp or SMS. Those channels are on the roadmap; this preview uses the same agents.</p>
           <div id="chat"></div>
         </div>
       </div>
@@ -331,10 +338,11 @@ function remountChat(reset) {
   const search = playStyle === "search";
   const site = document.querySelector(".site");
   site.classList.toggle("search", search);
+  site.classList.toggle("phone", playStyle === "phone");
   site.classList.remove("active");
   const opts = {
     key: t.widgetKey,
-    mode: search ? "search" : "inline",
+    mode: search ? "search" : playStyle === "phone" ? "phone" : "inline",
     target: "#chat",
     role: playRole || undefined,
     preview: true,

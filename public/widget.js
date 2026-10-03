@@ -2,9 +2,10 @@
  * Maven chat widget.
  *
  * Embed:   <script src="https://YOUR_HOST/widget.js" data-maven-key="pk_..." async></script>
- * Options (data attributes): data-mode="bubble|inline|search", data-target="#css-selector" (inline
- *          and search modes), data-open="true" (bubble starts open).
+ * Options (data attributes): data-mode="bubble|inline|search|phone", data-target="#css-selector"
+ *          (inline, search and phone modes), data-open="true" (bubble starts open).
  *          "search" renders a large, centered search-style box; answers appear below it.
+ *          "phone" renders a phone mockup with a messaging-app conversation (channel preview).
  * JS API:  MavenWidget.mount({ key, mode, target, open, role, preview }) / MavenWidget.unmount()
  */
 (function () {
@@ -165,10 +166,11 @@
     unmount();
     opts = opts || {};
     if (!opts.key) throw new Error("MavenWidget: missing key");
-    var mode = opts.mode === "inline" || opts.mode === "search" ? opts.mode : "bubble";
+    var mode = opts.mode === "inline" || opts.mode === "search" || opts.mode === "phone" ? opts.mode : "bubble";
     var target = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
     if (mode !== "bubble" && !target) mode = "bubble";
     if (mode === "search") return mountSearch(opts, target);
+    if (mode === "phone") return mountPhone(opts, target);
 
     var host = document.createElement("div");
     host.setAttribute("data-maven-widget", "");
@@ -579,6 +581,228 @@
     }
 
     if (opts.autofocus !== false && !state.history.length) setTimeout(function () { input.focus(); }, 50);
+
+    mounted = {
+      host: host,
+      open: function () { input.focus(); },
+      reset: function () {
+        store(storeKey, null);
+        store(storeKey + ":h", null);
+      },
+    };
+    return mounted;
+  }
+
+  // ---------- phone mode (messaging-app preview) ----------
+
+  var PHONE_CSS = [
+    ":host{all:initial;display:block}",
+    "*{box-sizing:border-box;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif}",
+    ".device{width:360px;max-width:100%;height:720px;margin:0 auto;border-radius:48px;background:#111;padding:12px;box-shadow:0 20px 50px rgba(0,0,0,.25),inset 0 0 0 2px #333;position:relative}",
+    ".notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#111;border-radius:0 0 16px 16px;z-index:3}",
+    ".screen{width:100%;height:100%;border-radius:38px;overflow:hidden;display:flex;flex-direction:column;background:#efeae2}",
+    ".status{height:34px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:4px 26px 0;font-size:13px;font-weight:600;color:#fff;background:var(--c)}",
+    ".status svg{height:12px;margin-left:4px}",
+    ".bar{flex:none;display:flex;align-items:center;gap:10px;padding:8px 12px 10px;background:var(--c);color:#fff}",
+    ".bar .back{font-size:22px;line-height:1;opacity:.9}",
+    ".av{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-weight:700;flex:none}",
+    ".who{flex:1;min-width:0}.who b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.who span{font-size:12px;opacity:.85}",
+    ".icons{display:flex;gap:16px;opacity:.9}.icons svg{width:20px;height:20px}",
+    ".msgs{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:4px;background-color:#efeae2;background-image:radial-gradient(rgba(0,0,0,.035) 1px,transparent 1px);background-size:16px 16px}",
+    ".day{align-self:center;background:#fff;color:#54656f;font-size:11px;padding:4px 10px;border-radius:8px;margin:4px 0 8px;box-shadow:0 1px .5px rgba(0,0,0,.13)}",
+    ".b{max-width:82%;padding:6px 8px 4px 9px;border-radius:8px;font-size:14px;line-height:1.4;color:#111b21;box-shadow:0 1px .5px rgba(0,0,0,.13);word-wrap:break-word;animation:pop .15s ease-out}",
+    "@keyframes pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}",
+    ".b.in{align-self:flex-start;background:#fff;border-top-left-radius:2px}",
+    ".b.out{align-self:flex-end;background:#d9fdd3;border-top-right-radius:2px}",
+    ".b.err{align-self:center;background:#fff3f2;color:#b3261e;font-size:13px}",
+    ".b p{margin:0 0 4px}.b p:last-of-type{margin-bottom:0}.b ul{margin:2px 0 4px;padding-left:18px}",
+    ".b blockquote{margin:2px 0;padding-left:8px;border-left:3px solid #c8d0d4;color:#3b4a54}",
+    ".b a{color:#027eb5}",
+    ".meta{float:right;margin:6px 0 -2px 10px;font-size:11px;color:#667781;display:flex;align-items:center;gap:3px}",
+    ".tick{width:16px;height:11px;color:#8696a0}.tick.read{color:#53bdeb}",
+    ".tag{align-self:flex-start;font-size:10px;color:#54656f;margin:6px 0 0 4px}.tag b{background:#e7e9ff;color:#4338ca;border-radius:999px;padding:1px 7px}",
+    ".dots{display:inline-flex;gap:4px;padding:6px 2px}.dots span{width:7px;height:7px;border-radius:50%;background:#8696a0;animation:bl 1.2s infinite}",
+    ".dots span:nth-child(2){animation-delay:.2s}.dots span:nth-child(3){animation-delay:.4s}",
+    "@keyframes bl{0%,80%,100%{opacity:.3}40%{opacity:1}}",
+    ".quick{display:flex;gap:6px;overflow-x:auto;padding:6px 10px 0;background:#efeae2;flex:none;scrollbar-width:none}",
+    ".quick button{flex:none;border:1px solid #d1d7db;background:#fff;color:#111b21;border-radius:16px;padding:6px 12px;font-size:12px;cursor:pointer}",
+    ".compose{flex:none;display:flex;align-items:center;gap:8px;padding:8px 8px 14px;background:#efeae2}",
+    ".pill{flex:1;display:flex;align-items:center;gap:8px;background:#fff;border-radius:22px;padding:0 14px;height:44px;box-shadow:0 1px .5px rgba(0,0,0,.13)}",
+    ".pill svg{width:22px;height:22px;color:#8696a0;flex:none}",
+    ".pill input{flex:1;min-width:0;border:0;outline:0;font-size:15px;background:transparent;color:#111b21}",
+    ".send{width:44px;height:44px;border-radius:50%;border:0;background:var(--c);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none}",
+    ".send:disabled{opacity:.5;cursor:default}.send svg{width:20px;height:20px}",
+    ".home{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);width:120px;height:4px;border-radius:2px;background:rgba(0,0,0,.35)}",
+    "@media (max-width:400px){.device{height:640px;border-radius:40px}}",
+  ].join("\n");
+
+  var ICON_TICK = '<svg class="tick" viewBox="0 0 16 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6l3 3 6-7M6 8.5l1 .5 6-7"/></svg>';
+
+  function hhmm() {
+    var d = new Date();
+    return (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes();
+  }
+
+  function mountPhone(opts, target) {
+    var host = document.createElement("div");
+    host.setAttribute("data-maven-widget", "");
+    target.appendChild(host);
+    var root = host.attachShadow({ mode: "open" });
+    root.innerHTML =
+      "<style>" + PHONE_CSS + "</style>" +
+      '<div class="device"><div class="notch"></div><div class="screen">' +
+      '<div class="status"><span class="clock">' + hhmm() + '</span><span>' +
+      '<svg viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2" width="3" height="10" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>' +
+      '<svg viewBox="0 0 26 12" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="22" height="11" rx="3"/><rect x="2.5" y="2.5" width="16" height="7" rx="1.5" fill="currentColor"/><path d="M24.5 4v4" stroke-linecap="round"/></svg></span></div>' +
+      '<div class="bar"><span class="back">‹</span><div class="av">·</div><div class="who"><b class="name">Business</b><span class="state">online</span></div>' +
+      '<div class="icons"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3"/></svg>' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg></div></div>' +
+      '<div class="msgs" aria-live="polite"><div class="day">Today</div></div>' +
+      '<div class="quick"></div>' +
+      '<form class="compose"><div class="pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke-linecap="round"/></svg>' +
+      '<input type="text" placeholder="Message" aria-label="Message" autocomplete="off" /></div>' +
+      '<button class="send" type="submit" aria-label="Send" disabled>' + ICON_SEND + "</button></form>" +
+      '</div><div class="home"></div></div>';
+
+    var $ = function (sel) { return root.querySelector(sel); };
+    var device = $(".device"), msgs = $(".msgs"), input = $("input"), send = $(".send"), stateEl = $(".state");
+    device.style.setProperty("--c", "#4f46e5");
+    var storeKey = "maven:" + opts.key + ":" + (opts.role || "auto");
+    var state = { conversationId: store(storeKey) || null, busy: false, history: [] };
+    try {
+      state.history = JSON.parse(store(storeKey + ":h") || "[]");
+    } catch (e) {}
+    var clock = setInterval(function () {
+      if (!host.isConnected) return clearInterval(clock);
+      $(".clock").textContent = hhmm();
+    }, 30000);
+
+    function persist(entry) {
+      state.history.push(entry);
+      state.history = state.history.slice(-40);
+      store(storeKey + ":h", JSON.stringify(state.history));
+    }
+    function scroll() { msgs.scrollTop = msgs.scrollHeight; }
+    function bubble(kind, text, time) {
+      var el = document.createElement("div");
+      el.className = "b " + kind;
+      var body = document.createElement("div");
+      if (kind === "out") body.textContent = text;
+      else body.innerHTML = md(text);
+      el.appendChild(body);
+      var meta = document.createElement("span");
+      meta.className = "meta";
+      meta.innerHTML = esc(time || hhmm()) + (kind === "out" ? ICON_TICK : "");
+      el.appendChild(meta);
+      msgs.appendChild(el);
+      scroll();
+      return { el: el, body: body };
+    }
+    function tag(agent) {
+      if (!opts.preview || !agent) return;
+      var t = document.createElement("div");
+      t.className = "tag";
+      t.innerHTML = "<b>" + esc(agent.name) + "</b> agent";
+      msgs.appendChild(t);
+    }
+    function sync() { send.disabled = !input.value.trim() || state.busy; }
+
+    loadConfig(opts.key)
+      .then(function (cfg) {
+        device.style.setProperty("--c", cfg.color || "#4f46e5");
+        $(".name").textContent = cfg.businessName || cfg.assistantName;
+        $(".av").textContent = (cfg.businessName || "A").trim().charAt(0).toUpperCase();
+        if (!state.history.length) bubble("in", cfg.greeting || "Hi! How can I help?");
+        $(".quick").innerHTML = (cfg.agents || [])
+          .filter(function (a) { return CHIPS[a.role]; })
+          .map(function (a) { return "<button type=\"button\">" + esc(CHIPS[a.role]) + "</button>"; })
+          .join("");
+        root.querySelectorAll(".quick button").forEach(function (b) {
+          b.addEventListener("click", function () { ask(b.textContent); });
+        });
+        if (state.history.length) $(".quick").style.display = "none";
+      })
+      .catch(function () { bubble("err", "Chat is unavailable right now."); });
+
+    state.history.forEach(function (h) {
+      if (h.kind === "user") {
+        var u = bubble("out", h.text, h.time);
+        u.el.querySelector(".tick").classList.add("read");
+      } else {
+        tag(h.agent);
+        bubble("in", h.text, h.time);
+      }
+    });
+
+    input.addEventListener("input", sync);
+    $(".compose").addEventListener("submit", function (e) {
+      e.preventDefault();
+      ask(input.value);
+    });
+
+    function ask(raw) {
+      var text = (raw || "").trim();
+      if (!text || state.busy) return;
+      state.busy = true;
+      input.value = "";
+      sync();
+      $(".quick").style.display = "none";
+      var time = hhmm();
+      var out = bubble("out", text, time);
+      persist({ kind: "user", text: text, time: time });
+      var typing = null;
+      // A short pause before "typing…" feels like a real contact reading the message.
+      var typingTimer = setTimeout(function () {
+        out.el.querySelector(".tick").classList.add("read");
+        stateEl.textContent = "typing…";
+        typing = document.createElement("div");
+        typing.className = "b in";
+        typing.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+        msgs.appendChild(typing);
+        scroll();
+      }, 350);
+      var reply = "", agent = null, view = null, failed = false;
+      function clearTyping() {
+        clearTimeout(typingTimer);
+        out.el.querySelector(".tick").classList.add("read");
+        if (typing) typing.remove();
+        typing = null;
+      }
+
+      postChat(opts.key, { message: text, conversationId: state.conversationId, role: opts.role || undefined }, function (event, data) {
+        if (event === "meta") {
+          state.conversationId = data.conversationId;
+          store(storeKey, data.conversationId);
+          agent = data.agent;
+        } else if (event === "delta") {
+          if (!view) {
+            clearTyping();
+            tag(agent);
+            view = bubble("in", "");
+          }
+          reply += data.text;
+          view.body.innerHTML = md(reply);
+          scroll();
+        } else if (event === "error") {
+          failed = true;
+          clearTyping();
+          bubble("err", data.message + (opts.preview && data.detail ? " (" + data.detail + ")" : ""));
+        }
+      })
+        .catch(function (err) {
+          failed = true;
+          clearTyping();
+          bubble("err", err.message || "Message not delivered. Please try again.");
+        })
+        .then(function () {
+          clearTyping();
+          stateEl.textContent = "online";
+          if (reply) persist({ kind: "bot", text: reply, agent: agent, time: hhmm() });
+          state.busy = false;
+          sync();
+          if (opts.autofocus !== false) input.focus();
+        });
+    }
 
     mounted = {
       host: host,
