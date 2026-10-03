@@ -49,7 +49,7 @@ const BYOK_PROVIDERS: ProviderInfo[] = [
     needsBaseUrl: false,
     defaultModel: "auto",
     // "auto" picks the best chat model the key can use (see groq-models.ts).
-    suggestedModels: ["auto", "openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+    suggestedModels: ["auto", "openai/gpt-oss-120b", "openai/gpt-oss-20b"],
     keyHint: "gsk_...",
   },
   { id: "gemini", name: "Google Gemini", needsKey: true, needsBaseUrl: false, defaultModel: "gemini-2.5-flash", suggestedModels: ["gemini-2.5-pro", "gemini-2.5-flash"], keyHint: "AIza..." },

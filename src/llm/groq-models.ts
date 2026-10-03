@@ -5,8 +5,8 @@ export const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
 // Groq's catalogue changes often, so "auto" asks the account which models it
 // can use and picks the first match from this preference list (general-purpose
 // chat models first, small fast ones last).
-const PREFERRED = ["openai/gpt-oss-120b", "llama-3.3-70b-versatile", "moonshotai/kimi-k2-instruct", "qwen/qwen3-32b", "openai/gpt-oss-20b", "llama-3.1-8b-instant"];
-const NOT_CHAT = /whisper|tts|guard|embed|playai|orpheus|prompt-guard|compound/i;
+const PREFERRED = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile", "qwen/qwen3-32b", "llama-3.1-8b-instant"];
+const NOT_CHAT = /whisper|tts|guard|safety|embed|playai|orpheus|compound/i;
 
 const cache = new Map<string, { model: string; expires: number }>();
 
