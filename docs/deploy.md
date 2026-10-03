@@ -20,7 +20,20 @@ Run **a single instance** for now. Each server keeps a copy of the data in memor
 | `NODE_ENV` | set by the Dockerfile | `production`. This also blocks crawling or calling private-network URLs. |
 | `PORT` | no | Defaults to 3000. Most platforms set it for you. |
 
-`GET /healthz` returns `{"ok":true,"storage":"postgres"}`, so you can confirm which storage is active.
+### Included AI (optional): your Groq or Claude keys
+
+Set these and onboarding offers **Maven AI (included)** first, so businesses can start without their own key. They can still connect their own key at any time.
+
+| Variable | Value |
+|---|---|
+| `MAVEN_GROQ_API_KEY` | Your Groq key (`gsk_...`, from console.groq.com → API Keys). |
+| `MAVEN_GROQ_MODEL` | Optional. Default `auto` picks the best chat model your key can use. |
+| `MAVEN_ANTHROPIC_API_KEY` | Optional. Your Anthropic key. If you set both, the second backend takes over when the first fails. |
+| `MAVEN_ANTHROPIC_MODEL` | Optional. Default `claude-opus-5`. `claude-sonnet-5` and `claude-haiku-4-5` cost less. |
+| `MAVEN_MANAGED_PROVIDER` | Optional. Which backend to try first when both are set: `groq` (default) or `anthropic`. |
+| `MAVEN_MANAGED_DAILY_MESSAGES` | Optional. Included messages per workspace per day (default `200`). This caps your bill. |
+
+`GET /healthz` returns e.g. `{"ok":true,"storage":"postgres","includedAI":["groq"]}`, so you can confirm the storage and included-AI setup.
 
 ## Option A: Railway (easiest)
 

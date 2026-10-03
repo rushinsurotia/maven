@@ -1,4 +1,5 @@
-export type ProviderId = "demo" | "anthropic" | "openai" | "gemini" | "openai_compatible";
+/** "maven" = AI included with Maven, running on the platform's own keys (see src/llm/managed.ts). */
+export type ProviderId = "maven" | "demo" | "anthropic" | "openai" | "gemini" | "groq" | "openai_compatible";
 
 export type Role = "support" | "sales" | "appointments";
 export const ROLES: Role[] = ["support", "sales", "appointments"];

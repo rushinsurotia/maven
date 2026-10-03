@@ -1,25 +1,28 @@
 import OpenAI from "openai";
+import { GROQ_BASE_URL, resolveGroqModel } from "./groq-models";
 import { ProviderError, type Provider } from "./types";
 
-function make(id: "openai" | "openai_compatible"): Provider {
+function make(id: "openai" | "groq" | "openai_compatible"): Provider {
   return {
     id,
     async *streamChat(cred, req) {
+      const baseURL = cred.baseUrl || (id === "groq" ? GROQ_BASE_URL : undefined);
       const client = new OpenAI({
         // Local servers such as Ollama accept any key.
         apiKey: cred.apiKey || "not-needed",
-        baseURL: cred.baseUrl || undefined,
+        baseURL,
         maxRetries: 1,
       });
+      const model = id === "groq" ? await resolveGroqModel(req.model, cred.apiKey, baseURL) : req.model;
       try {
         const stream = await client.chat.completions.create(
           {
-            model: req.model,
+            model,
             stream: true,
             messages: [{ role: "system", content: req.system }, ...req.messages],
-            // OpenAI's own API uses max_completion_tokens; many compatible
+            // OpenAI and Groq use max_completion_tokens; many compatible
             // servers only understand the older max_tokens.
-            ...(id === "openai" ? { max_completion_tokens: 16000 } : { max_tokens: 4096 }),
+            ...(id === "openai_compatible" ? { max_tokens: 4096 } : { max_completion_tokens: id === "groq" ? 8192 : 16000 }),
           },
           { signal: req.signal },
         );
@@ -36,4 +39,5 @@ function make(id: "openai" | "openai_compatible"): Provider {
 }
 
 export const openaiProvider = make("openai");
+export const groqProvider = make("groq");
 export const openaiCompatibleProvider = make("openai_compatible");

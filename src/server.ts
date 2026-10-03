@@ -3,10 +3,10 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSystemPrompt, defaultAgents, getAgent, routeMessage } from "./agents";
-import { ACCESS_PASSWORD, IS_PRODUCTION, PORT, PUBLIC_URL } from "./config";
+import { ACCESS_PASSWORD, IS_PRODUCTION, managedConfig, PORT, PUBLIC_URL } from "./config";
 import { buildKnowledge, crawlSite } from "./crawler";
 import { encrypt, randomId } from "./crypto";
-import { getProvider, isProviderId, PROVIDER_INFO, ProviderError, resolveCredential, testCredential, type ChatTurn } from "./llm";
+import { FIXED_MODEL, getProvider, isProviderId, ProviderError, providerInfo, resolveCredential, testCredential, type ChatTurn } from "./llm";
 import { search } from "./retrieval";
 import { assertPublicUrl } from "./safe-fetch";
 import { closeStore, getKnowledge, getTenant, getTenantByWidgetKey, initStore, saveKnowledge, saveTenant, storageBackend, updateTenant } from "./store";
@@ -22,7 +22,7 @@ app.set("trust proxy", 1);
 app.use(express.json({ limit: "200kb" }));
 
 app.get("/healthz", (_req, res) => {
-  res.json({ ok: true, storage: storageBackend() });
+  res.json({ ok: true, storage: storageBackend(), includedAI: managedConfig().backends.map((b) => b.provider) });
 });
 
 // Optional password for everything except what customers' browsers load.
@@ -85,12 +85,14 @@ function str(v: unknown, max = 10_000): string | undefined {
 async function makeCredential(body: Record<string, unknown>, model: string): Promise<Credential> {
   const provider = body.provider;
   if (!isProviderId(provider)) throw new HttpError(400, "Choose an AI provider");
-  const info = PROVIDER_INFO.find((p) => p.id === provider)!;
+  const info = providerInfo().find((p) => p.id === provider);
+  if (!info) throw new HttpError(400, "That AI provider isn't available");
+  const fixed = FIXED_MODEL[provider];
   const apiKey = str(body.apiKey, 500)?.trim() || undefined;
   const baseUrl = str(body.baseUrl, 500)?.trim().replace(/\/$/, "") || undefined;
   if (info.needsKey && !apiKey) throw new HttpError(400, `Paste your ${info.name} API key`);
   if (info.needsBaseUrl && !baseUrl) throw new HttpError(400, "Enter the base URL of your OpenAI-compatible endpoint");
-  if (provider !== "demo" && !model) throw new HttpError(400, "Enter a model name");
+  if (!fixed && !model) throw new HttpError(400, "Enter a model name");
   if (baseUrl) {
     try {
       await assertPublicUrl(baseUrl);
@@ -98,7 +100,7 @@ async function makeCredential(body: Record<string, unknown>, model: string): Pro
       throw new HttpError(400, (e as Error).message);
     }
   }
-  if (provider !== "demo") {
+  if (!fixed) {
     try {
       await testCredential({ provider, apiKey, baseUrl }, model);
     } catch (e) {
@@ -169,7 +171,7 @@ async function runCrawl(tenantId: string, firstRun: boolean) {
 // ---------- dashboard API (no auth in the MVP: workspace ids are unguessable) ----------
 
 app.get("/api/providers", (_req, res) => {
-  res.json(PROVIDER_INFO);
+  res.json(providerInfo());
 });
 
 app.post(
@@ -182,7 +184,7 @@ app.post(
       throw new HttpError(400, (e as Error).message);
     }
     const provider = req.body?.provider as ProviderId;
-    const model = provider === "demo" ? "demo" : (str(req.body?.model, 200)?.trim() ?? "");
+    const model = FIXED_MODEL[provider] ?? str(req.body?.model, 200)?.trim() ?? "";
     const cred = await makeCredential(req.body ?? {}, model);
     const host = new URL(websiteUrl).hostname.replace(/^www\./, "");
     const tenant: Tenant = {
@@ -240,7 +242,7 @@ app.post(
   "/api/tenants/:id/credentials",
   asyncRoute(async (req, res) => {
     const t = requireTenant(req);
-    const model = req.body?.provider === "demo" ? "demo" : (str(req.body?.model, 200)?.trim() ?? "");
+    const model = FIXED_MODEL[req.body?.provider as ProviderId] ?? str(req.body?.model, 200)?.trim() ?? "";
     const cred = await makeCredential(req.body ?? {}, model);
     updateTenant(t.id, (x) => x.credentials.push(cred));
     res.status(201).json(publicTenant(getTenant(t.id)!));
@@ -258,8 +260,9 @@ app.put(
     const credentialId = str(body.credentialId, 100) ?? current.credentialId;
     const cred = t.credentials.find((c) => c.id === credentialId);
     if (!cred) throw new HttpError(400, "Unknown AI connection");
-    const model = cred.provider === "demo" ? "demo" : (str(body.model, 200)?.trim() || current.model);
-    if (cred.provider !== "demo" && (credentialId !== current.credentialId || model !== current.model)) {
+    const fixed = FIXED_MODEL[cred.provider];
+    const model = fixed ?? (str(body.model, 200)?.trim() || current.model);
+    if (!fixed && (credentialId !== current.credentialId || model !== current.model)) {
       try {
         await testCredential(resolveCredential(cred), model);
       } catch (e) {
@@ -293,6 +296,17 @@ interface Conversation {
 }
 const conversations = new Map<string, Conversation>();
 const MAX_HISTORY = 20;
+
+// Daily cap on "Maven AI (included)" messages per workspace, since they run on
+// the platform's keys. In memory for the MVP, so it resets on restart.
+const includedUsage = new Map<string, number>();
+function takeIncludedMessage(tenantId: string): boolean {
+  const key = `${tenantId}:${new Date().toISOString().slice(0, 10)}`;
+  const used = includedUsage.get(key) ?? 0;
+  if (used >= managedConfig().dailyMessageLimit) return false;
+  includedUsage.set(key, used + 1);
+  return true;
+}
 
 // Drop idle conversations after 6 hours (in-memory store for the MVP).
 setInterval(() => {
@@ -383,6 +397,11 @@ app.post(
     let reply = "";
     try {
       if (!cred) throw new ProviderError("This agent has no AI connection configured");
+      if (cred.provider === "maven" && !takeIncludedMessage(t.id)) {
+        throw new ProviderError(
+          `Daily limit for Maven AI (included) reached (${managedConfig().dailyMessageLimit} messages). Connect your own AI key under AI connections to remove the limit.`,
+        );
+      }
       const provider = getProvider(cred.provider);
       const system = buildSystemPrompt({ tenant: t, agent, channel: "web", knowledge });
       const messages: ChatTurn[] = [...conv.history.slice(-MAX_HISTORY), { role: "user", content: message }];

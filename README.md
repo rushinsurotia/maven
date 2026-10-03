@@ -19,7 +19,13 @@ npm install
 npm run dev            # http://localhost:3000
 ```
 
-1. Open http://localhost:3000, enter a website URL and pick an AI provider: **Demo** (no key), Anthropic, OpenAI, Google Gemini, or any OpenAI-compatible endpoint (OpenRouter, Groq, Together, a local Ollama at `http://localhost:11434/v1`...). Your key is tested before it's saved.
+1. Open http://localhost:3000, enter a website URL and pick an AI provider:
+   - **Maven AI (included)**, when the server has platform keys (`MAVEN_GROQ_API_KEY` and/or `MAVEN_ANTHROPIC_API_KEY`).
+   - **Demo**, no key.
+   - Your own key for Anthropic, OpenAI, Groq or Google Gemini.
+   - Any OpenAI-compatible endpoint (OpenRouter, Together, a local Ollama at `http://localhost:11434/v1`...).
+
+   Your own keys are tested before they're saved.
 2. Maven reads up to 40 pages of the site. Meanwhile you land in the dashboard.
 3. Chat in the **Playground**. **Auto** routes each message to the Support, Sales or Appointments agent; pick an agent to test it alone. Each reply shows which agent answered and its sources.
 4. Change things in the dashboard:
@@ -50,7 +56,7 @@ See [`docs/deploy.md`](docs/deploy.md): Railway, Fly.io, Render or any Docker ho
 | Area | MVP | Planned (see architecture doc) |
 |---|---|---|
 | Knowledge | Same-site crawl (plus sitemap.xml), header/footer dedup, BM25 search | Uploads, FAQs, hybrid vector search, scheduled re-sync |
-| AI | Bring your own key: Anthropic, OpenAI, Gemini, OpenAI-compatible. Keys are encrypted at rest (AES-256-GCM) | Azure, Bedrock, external agents, fallback engines, KMS |
+| AI | Included AI on platform Groq/Claude keys (fallback + daily cap), or bring your own key: Anthropic, OpenAI, Groq, Gemini, OpenAI-compatible. Keys are encrypted at rest (AES-256-GCM) | Azure, Bedrock, external agents, fallback engines, KMS |
 | Agents | Support, Sales and Appointments, each with its own engine and instructions. Keyword router with stickiness | Classifier routing, tools (booking, lead capture, human handoff) |
 | Widget | Bubble or inline, streaming, Shadow DOM, mobile full-screen | WhatsApp, voice |
 | Platform | Postgres (`DATABASE_URL`) or JSON files in `data/`; in-memory conversations | Postgres + RLS, auth, inbox, billing |

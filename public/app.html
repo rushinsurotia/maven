@@ -127,6 +127,7 @@ function renderStatus() {
 function modelInput(id, providerId, value) {
   const p = providers.find((x) => x.id === providerId);
   if (providerId === "demo") return '<input id="' + id + '" value="demo" disabled />';
+  if (providerId === "maven") return '<input id="' + id + '" value="included" disabled title="Chosen by Maven" />';
   return '<input id="' + id + '" list="' + id + '-list" value="' + esc(value) + '" /><datalist id="' + id + '-list">' +
     (p ? p.suggestedModels.map((m) => '<option value="' + esc(m) + '">').join("") : "") + "</datalist>";
 }
@@ -194,7 +195,9 @@ function renderPanel() {
     const render = () => {
       const p = providers.find((x) => x.id === $("newProvider").value);
       let h = "";
-      if (p.id !== "demo") {
+      if (p.id === "maven") {
+        h += '<p class="muted small">' + esc(p.keyHint) + "</p>";
+      } else if (p.id !== "demo") {
         if (p.needsBaseUrl) h += '<label>Base URL</label><input id="nBase" placeholder="https://openrouter.ai/api/v1" />';
         h += '<label>API key</label><input id="nKey" type="password" autocomplete="off" placeholder="' + esc(p.keyHint) + '" />';
         h += '<label>Model to test with</label>' + modelInput("nModel", p.id, p.defaultModel);

@@ -30,7 +30,7 @@
       <input id="website" type="text" inputmode="url" placeholder="yourbusiness.com" required autocomplete="url" />
 
       <div class="step"><b>2</b> Your AI</div>
-      <p class="muted small" style="margin:0 0 10px">Use your own API key. It's stored encrypted and only used to answer your customers. Pick <b>Demo</b> to try without a key.</p>
+      <p class="muted small" style="margin:0 0 10px">Start without a key, or connect your own (stored encrypted, only used to answer your customers).</p>
       <div class="providers" id="providers"></div>
       <div id="fields"></div>
 
@@ -57,7 +57,9 @@ function renderFields() {
   const p = selected();
   if (!p) return;
   let html = "";
-  if (p.id === "demo") {
+  if (p.id === "maven") {
+    html = '<p class="muted small" style="margin-top:14px">' + p.keyHint + ' Includes a daily message allowance; you can connect your own key any time.</p>';
+  } else if (p.id === "demo") {
     html = '<p class="muted small" style="margin-top:14px">Demo mode doesn\'t use an AI model: it quotes the most relevant parts of your site. You can connect a real provider later from the dashboard.</p>';
   } else {
     if (p.needsBaseUrl) {
@@ -86,7 +88,7 @@ $("f").addEventListener("submit", async (e) => {
   $("err").textContent = "";
   const btn = $("submit");
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> ' + (p.id === "demo" ? "Creating…" : "Checking your key…");
+  btn.innerHTML = '<span class="spinner"></span> ' + (p.id === "demo" || p.id === "maven" ? "Creating…" : "Checking your key…");
   const val = (id) => ($(id) ? $(id).value.trim() : undefined);
   try {
     const res = await fetch("/api/tenants", {

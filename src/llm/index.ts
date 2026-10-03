@@ -3,16 +3,19 @@ import type { Credential, ProviderId } from "../types";
 import { anthropicProvider } from "./anthropic";
 import { demoProvider } from "./demo";
 import { geminiProvider } from "./gemini";
-import { openaiCompatibleProvider, openaiProvider } from "./openai";
+import { managedAvailable, managedDescription, mavenProvider } from "./managed";
+import { groqProvider, openaiCompatibleProvider, openaiProvider } from "./openai";
 import type { Provider, ResolvedCredential } from "./types";
 
 export * from "./types";
 
 const providers: Record<ProviderId, Provider> = {
+  maven: mavenProvider,
   demo: demoProvider,
   anthropic: anthropicProvider,
   openai: openaiProvider,
   gemini: geminiProvider,
+  groq: groqProvider,
   openai_compatible: openaiCompatibleProvider,
 };
 
@@ -27,7 +30,7 @@ export interface ProviderInfo {
 }
 
 // Model lists are suggestions only; any model id the tenant's key can access works.
-export const PROVIDER_INFO: ProviderInfo[] = [
+const BYOK_PROVIDERS: ProviderInfo[] = [
   { id: "demo", name: "Demo (no key)", needsKey: false, needsBaseUrl: false, defaultModel: "demo", suggestedModels: ["demo"], keyHint: "" },
   {
     id: "anthropic",
@@ -39,10 +42,20 @@ export const PROVIDER_INFO: ProviderInfo[] = [
     keyHint: "sk-ant-...",
   },
   { id: "openai", name: "OpenAI", needsKey: true, needsBaseUrl: false, defaultModel: "gpt-5-mini", suggestedModels: ["gpt-5", "gpt-5-mini", "gpt-4.1-mini"], keyHint: "sk-..." },
+  {
+    id: "groq",
+    name: "Groq",
+    needsKey: true,
+    needsBaseUrl: false,
+    defaultModel: "auto",
+    // "auto" picks the best chat model the key can use (see groq-models.ts).
+    suggestedModels: ["auto", "openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+    keyHint: "gsk_...",
+  },
   { id: "gemini", name: "Google Gemini", needsKey: true, needsBaseUrl: false, defaultModel: "gemini-2.5-flash", suggestedModels: ["gemini-2.5-pro", "gemini-2.5-flash"], keyHint: "AIza..." },
   {
     id: "openai_compatible",
-    name: "OpenAI-compatible (OpenRouter, Groq, Ollama...)",
+    name: "OpenAI-compatible (OpenRouter, Together, Ollama...)",
     needsKey: false,
     needsBaseUrl: true,
     defaultModel: "",
@@ -50,6 +63,26 @@ export const PROVIDER_INFO: ProviderInfo[] = [
     keyHint: "Optional for local servers",
   },
 ];
+
+/** Providers offered right now. "Maven AI (included)" comes first when the server has platform keys. */
+export function providerInfo(): ProviderInfo[] {
+  if (!managedAvailable()) return BYOK_PROVIDERS;
+  return [
+    {
+      id: "maven",
+      name: "Maven AI (included)",
+      needsKey: false,
+      needsBaseUrl: false,
+      defaultModel: FIXED_MODEL.maven!,
+      suggestedModels: [],
+      keyHint: `No key needed. Powered by ${managedDescription()}.`,
+    },
+    ...BYOK_PROVIDERS,
+  ];
+}
+
+/** Providers whose model is chosen by Maven, not the tenant. */
+export const FIXED_MODEL: Partial<Record<ProviderId, string>> = { demo: "demo", maven: "included" };
 
 export function getProvider(id: ProviderId): Provider {
   const p = providers[id];

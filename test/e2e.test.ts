@@ -12,14 +12,20 @@ process.env.ALLOW_PRIVATE_URLS = "1";
 let site: Awaited<ReturnType<typeof serve>>;
 let fakeOpenAI: Awaited<ReturnType<typeof serve>>;
 let fakeAnthropic: Awaited<ReturnType<typeof serve>>;
+let deadAnthropic: Awaited<ReturnType<typeof serve>>;
 let maven: Awaited<ReturnType<typeof serve>>;
 const upstreamRequests: any[] = [];
 
 before(async () => {
   site = await serve(siteHandler());
 
-  // Minimal OpenAI-compatible streaming server (stands in for OpenRouter/Ollama/etc).
+  // Minimal OpenAI-compatible streaming server (stands in for Groq/OpenRouter/Ollama/etc).
   fakeOpenAI = await serve((req, res) => {
+    if (req.method === "GET" && req.url?.endsWith("/models")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ object: "list", data: ["whisper-large-v3", "llama-3.3-70b-versatile", "openai/gpt-oss-120b"].map((id) => ({ id, object: "model" })) }));
+      return;
+    }
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
@@ -58,12 +64,18 @@ before(async () => {
     });
   });
 
+  // An Anthropic endpoint that rejects every request (to exercise fallback).
+  deadAnthropic = await serve((_req, res) => {
+    res.writeHead(401, { "content-type": "application/json" });
+    res.end(JSON.stringify({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }));
+  });
+
   const { app } = await import("../src/server");
   maven = await serve(app);
 });
 
 after(async () => {
-  await Promise.all([site.close(), fakeOpenAI.close(), fakeAnthropic.close(), maven.close()]);
+  await Promise.all([site.close(), fakeOpenAI.close(), fakeAnthropic.close(), deadAnthropic.close(), maven.close()]);
 });
 
 async function json(method: string, url: string, body?: unknown) {
@@ -174,6 +186,50 @@ test("BYOK: bad keys are rejected at onboarding, good keys stream replies, per-r
   for (const role of ["support", "sales"]) await json("PUT", `/api/tenants/${t.id}/agents/${role}`, { enabled: false });
   const last = await json("PUT", `/api/tenants/${t.id}/agents/appointments`, { enabled: false });
   assert.equal(last.status, 400);
+});
+
+test("Groq: 'auto' picks the best chat model the key can use", async () => {
+  const created = await json("POST", "/api/tenants", { websiteUrl: site.url, provider: "groq", apiKey: "good-key", model: "auto", baseUrl: fakeOpenAI.url });
+  assert.equal(created.status, 201, created.body.error);
+  const t = await waitForCrawl(created.body.id);
+  upstreamRequests.length = 0;
+  const r = await chat(t.widgetKey, "What are your hours?");
+  assert.equal(r.text, "Nail trims are $15.");
+  assert.equal(upstreamRequests.at(-1).model, "openai/gpt-oss-120b");
+  assert.equal(upstreamRequests.at(-1).max_completion_tokens, 8192);
+});
+
+test("Maven AI (included): no key, falls back between backends, daily cap", async () => {
+  const before = (await json("GET", "/api/providers")).body;
+  assert.ok(!before.some((p: any) => p.id === "maven"), "hidden until platform keys are configured");
+
+  Object.assign(process.env, {
+    MAVEN_MANAGED_PROVIDER: "anthropic", // primary is down, so Groq must take over
+    MAVEN_ANTHROPIC_API_KEY: "sk-ant-platform",
+    MAVEN_ANTHROPIC_BASE_URL: deadAnthropic.url,
+    MAVEN_GROQ_API_KEY: "good-key",
+    MAVEN_GROQ_BASE_URL: fakeOpenAI.url,
+    MAVEN_MANAGED_DAILY_MESSAGES: "2",
+  });
+  try {
+    const providers = (await json("GET", "/api/providers")).body;
+    assert.equal(providers[0].id, "maven");
+    assert.match(providers[0].keyHint, /Claude \+ Groq/);
+
+    const created = await json("POST", "/api/tenants", { websiteUrl: site.url, provider: "maven" });
+    assert.equal(created.status, 201, created.body.error);
+    assert.ok(created.body.agents.every((a: any) => a.model === "included"));
+    const t = await waitForCrawl(created.body.id);
+
+    const r1 = await chat(t.widgetKey, "hours?");
+    assert.equal(r1.text, "Nail trims are $15.");
+    assert.equal(upstreamRequests.at(-1).model, "openai/gpt-oss-120b");
+    assert.equal((await chat(t.widgetKey, "price?")).error, undefined);
+    const capped = await chat(t.widgetKey, "one more?");
+    assert.match(capped.error.detail, /Daily limit/);
+  } finally {
+    for (const k of ["MAVEN_MANAGED_PROVIDER", "MAVEN_ANTHROPIC_API_KEY", "MAVEN_ANTHROPIC_BASE_URL", "MAVEN_GROQ_API_KEY", "MAVEN_GROQ_BASE_URL", "MAVEN_MANAGED_DAILY_MESSAGES"]) delete process.env[k];
+  }
 });
 
 test("Anthropic adapter streams text from the Messages API", async () => {
