@@ -343,7 +343,12 @@
     "*{box-sizing:border-box;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif}",
     ".s{max-width:720px;margin:0 auto;color:#202124}",
     ".s-greet{text-align:center;color:#5f6368;font-size:15px;margin:0 0 16px}",
-    ".s-bar{position:sticky;top:0;z-index:5;padding:10px 0;background:var(--bg)}",
+    ".s-bar{position:relative;z-index:5;padding:10px 0}",
+    // Once a conversation starts: thread on top, input pinned to the bottom of the screen (chat-app layout).
+    ".s.active{display:flex;flex-direction:column;min-height:var(--minh,auto)}",
+    ".s.active .s-thread{order:1;flex:1}",
+    ".s.active .s-bar{order:2;position:sticky;bottom:0;padding:18px 0 8px;background:linear-gradient(to top,var(--bg) 78%,transparent)}",
+    ".s.active .s-foot{order:3;margin-top:2px;padding-bottom:8px}",
     ".s-box{display:flex;align-items:center;gap:12px;height:58px;padding:0 8px 0 20px;border:1px solid #dfe1e5;border-radius:29px;background:#fff;transition:box-shadow .2s,border-color .2s}",
     ".s-box:hover,.s-box:focus-within{box-shadow:0 1px 6px rgba(32,33,36,.28);border-color:rgba(223,225,229,0)}",
     ".s-mag{width:20px;height:20px;color:#9aa0a6;flex:none}",
@@ -411,6 +416,7 @@
     var wrap = $(".s"), form = $(".s-box"), input = $("input"), go = $(".s-go"), thread = $(".s-thread");
     wrap.style.setProperty("--c", "#4f46e5");
     wrap.style.setProperty("--bg", opts.background || "#fff");
+    if (opts.minHeight) wrap.style.setProperty("--minh", opts.minHeight);
     var storeKey = "maven:" + opts.key + ":" + (opts.role || "auto");
     var state = { conversationId: store(storeKey) || null, busy: false, history: [] };
     try {
@@ -468,12 +474,22 @@
       }).join("");
       qa.appendChild(s);
     }
-    function reveal(el) {
-      // Keep the new question just below the sticky search bar.
+    // Scroll so the bottom of el sits just above the input pinned at the bottom.
+    function follow(el, smooth) {
+      if (!el) return;
       var bar = $(".s-bar").getBoundingClientRect().height;
-      var top = el.getBoundingClientRect().top + window.pageYOffset - bar - 12;
-      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      var top = el.getBoundingClientRect().bottom + window.pageYOffset - window.innerHeight + bar + 24;
+      if (top > window.pageYOffset) window.scrollTo({ top: top, behavior: smooth ? "smooth" : "auto" });
     }
+    // Follow a streaming answer only while the reader hasn't scrolled up to read something.
+    var pinned = true;
+    window.addEventListener("scroll", function () {
+      if (!host.isConnected || !wrap.classList.contains("active")) return;
+      var last = thread.lastElementChild;
+      if (!last) return;
+      var bar = $(".s-bar").getBoundingClientRect();
+      pinned = last.getBoundingClientRect().bottom <= bar.top + 80;
+    }, { passive: true });
 
     loadConfig(opts.key)
       .then(function (cfg) {
@@ -501,7 +517,10 @@
         addSources(lastQa, h.sources);
       }
     });
-    if (state.history.length) wrap.classList.add("active");
+    if (state.history.length) {
+      wrap.classList.add("active");
+      if (opts.autofocus !== false) requestAnimationFrame(function () { follow(thread.lastElementChild, false); });
+    }
 
     input.addEventListener("input", sync);
     $(".s-clear").addEventListener("click", function () {
@@ -538,7 +557,8 @@
       typing.className = "s-a";
       typing.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
       qa.appendChild(typing);
-      requestAnimationFrame(function () { reveal(qa); });
+      pinned = true;
+      requestAnimationFrame(function () { follow(qa, true); });
       var answer = null, reply = "", agent = null, sources = null, failed = false;
 
       function showError(message) {
@@ -561,9 +581,11 @@
           }
           reply += data.text;
           answer.innerHTML = md(reply);
+          if (pinned) follow(qa, false);
         } else if (event === "done") {
           sources = data.sources;
           addSources(qa, sources);
+          if (pinned) follow(qa, false);
         } else if (event === "error") {
           showError(data.message + (opts.preview && data.detail ? " (" + data.detail + ")" : ""));
         }

@@ -12,7 +12,8 @@
     header { display: flex; justify-content: flex-end; align-items: center; gap: 20px; padding: 16px 24px; color: #5f6368; }
     header .name { margin-right: auto; font-weight: 600; color: #202124; font-size: 16px; opacity: 0; transition: opacity .2s; }
     body.active header .name { opacity: 1; }
-    main { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 0 16px 40px; }
+    main { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 0 16px 24px; }
+    body.active main { padding-bottom: 0; }
     .logo { text-align: center; margin: 18vh 0 28px; transition: margin .3s ease; }
     .logo h1 { margin: 0; font-size: clamp(36px, 7vw, 64px); font-weight: 600; letter-spacing: -.03em; line-height: 1.05; color: var(--brand, #4f46e5); }
     body.active .logo { margin: 0; height: 0; overflow: hidden; }
@@ -42,7 +43,8 @@
     const setActive = (on) => document.body.classList.toggle("active", on);
     document.addEventListener("maven:active", () => setActive(true));
     document.addEventListener("maven:reset", () => setActive(false));
-    MavenWidget.mount({ key, mode: "search", target: "#search" });
+    // Fill the screen below the header, so the input sits at the bottom once a conversation starts.
+    MavenWidget.mount({ key, mode: "search", target: "#search", minHeight: "calc(100vh - 64px)" });
     // A returning visitor's earlier answers are restored, so start in the results layout.
     if (document.querySelector("#search [data-maven-widget]").shadowRoot.querySelector(".s.active")) setActive(true);
   </script>

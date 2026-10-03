@@ -348,6 +348,7 @@ function remountChat(reset) {
     preview: true,
     autofocus: false,
     background: "#fff",
+    minHeight: "560px",
   };
   const w = reset ? MavenWidget.reset(opts) : MavenWidget.mount(opts);
   // A restored conversation starts in the results layout.
